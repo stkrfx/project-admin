@@ -23,19 +23,21 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 
-// Server Action
 import { registerUser } from "@/actions/register";
+
+// ENFORCED PASSWORD SECURITY
+const passwordRegex = /^(?=.*[0-9])(?=.*[!@#$%^&*])[a-zA-Z0-9!@#$%^&*]{8,}$/;
 
 const formSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
   email: z.string().email({ message: "Please enter a valid email address." }),
-  password: z.string().min(6, { message: "Password must be at least 6 characters." }),
+  password: z.string().regex(passwordRegex, { 
+    message: "Min 8 chars, 1 number, 1 special char (!@#$%^&*)." 
+  }),
 });
 
 export default function RegisterForm() {
   const router = useRouter();
-  
-  // 'null' | 'google' | 'credentials'
   const [loadingType, setLoadingType] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -62,12 +64,11 @@ export default function RegisterForm() {
     setLoadingType("credentials");
 
     try {
-      // Call Server Action directly
       const result = await registerUser(values);
 
       if (result.error) {
         toast.error(result.error);
-        setLoadingType(null); // Reset only on error so user can retry
+        setLoadingType(null); 
         return;
       }
 
@@ -75,12 +76,8 @@ export default function RegisterForm() {
         toast.success("Account created!", {
           description: "Please verify your email address.",
         });
-
-        // Redirect to the separate verification page with email param
+        // Redirect and KEEP loading state true to prevent interactions
         router.push(`/verify-email?email=${encodeURIComponent(values.email)}`);
-        
-        // Note: We intentionally DO NOT reset loadingType here. 
-        // This keeps the form locked while the redirect happens, preventing double-clicks.
       }
 
     } catch (error) {
@@ -94,7 +91,6 @@ export default function RegisterForm() {
   return (
     <div className="w-full max-w-md space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
-      {/* Branding */}
       <div className="flex flex-col items-center text-center space-y-2">
         <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-zinc-900 text-white shadow-lg mb-2">
           <Brain className="h-6 w-6" />
@@ -108,7 +104,6 @@ export default function RegisterForm() {
       </div>
 
       <div className="space-y-4">
-        {/* Google Sign Up */}
         <GoogleButton 
           onClick={handleGoogleSignUp}
           isLoading={loadingType === "google"}
@@ -127,7 +122,6 @@ export default function RegisterForm() {
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             
-            {/* Name Field */}
             <FormField
               control={form.control}
               name="name"
@@ -140,7 +134,7 @@ export default function RegisterForm() {
                       <Input
                         placeholder="John Doe"
                         disabled={isLoading}
-                        className="pl-9 h-11 bg-zinc-50/30 border-zinc-200 focus-visible:ring-zinc-900 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="pl-9 h-11 bg-zinc-50/30 border-zinc-200 focus-visible:ring-zinc-900"
                         {...field}
                       />
                     </div>
@@ -150,7 +144,6 @@ export default function RegisterForm() {
               )}
             />
 
-            {/* Email Field */}
             <FormField
               control={form.control}
               name="email"
@@ -163,7 +156,7 @@ export default function RegisterForm() {
                       <Input
                         placeholder="name@example.com"
                         disabled={isLoading}
-                        className="pl-9 h-11 bg-zinc-50/30 border-zinc-200 focus-visible:ring-zinc-900 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="pl-9 h-11 bg-zinc-50/30 border-zinc-200 focus-visible:ring-zinc-900"
                         {...field}
                       />
                     </div>
@@ -173,7 +166,6 @@ export default function RegisterForm() {
               )}
             />
 
-            {/* Password Field */}
             <FormField
               control={form.control}
               name="password"
@@ -187,14 +179,14 @@ export default function RegisterForm() {
                         type={showPassword ? "text" : "password"}
                         placeholder="••••••••"
                         disabled={isLoading}
-                        className="pl-9 pr-10 h-11 bg-zinc-50/30 border-zinc-200 focus-visible:ring-zinc-900 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="pl-9 pr-10 h-11 bg-zinc-50/30 border-zinc-200 focus-visible:ring-zinc-900"
                         {...field}
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
                         disabled={isLoading}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 transition-colors disabled:opacity-50"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 disabled:opacity-50"
                       >
                         {showPassword ? (
                           <EyeOff className="h-4 w-4" />
@@ -211,7 +203,7 @@ export default function RegisterForm() {
 
             <Button
               type="submit"
-              className="w-full h-11 bg-zinc-900 hover:bg-zinc-800 text-white font-medium shadow-lg shadow-zinc-900/10 transition-all duration-200"
+              className="w-full h-11 bg-zinc-900 hover:bg-zinc-800 text-white font-medium shadow-lg"
               disabled={isLoading}
             >
               {loadingType === "credentials" ? (

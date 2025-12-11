@@ -28,8 +28,7 @@ import {
   InputOTPSeparator,
 } from "@/components/ui/input-otp";
 
-// Actions
-import { resendOtp } from "@/actions/resend"; // 1. Import the new action
+import { resendOtp } from "@/actions/resend";
 
 const verifySchema = z.object({
   otp: z.string().min(6, { message: "Your code must be 6 digits." }),
@@ -43,7 +42,6 @@ export default function VerifyForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
 
-  // Mask email for privacy (e.g., j***@gmail.com)
   const maskedEmail = email 
     ? email.replace(/^(.{2})(.*)(@.*)$/, (_, a, b, c) => a + "*".repeat(b.length) + c) 
     : "your email";
@@ -58,12 +56,9 @@ export default function VerifyForm() {
 
   const form = useForm({
     resolver: zodResolver(verifySchema),
-    defaultValues: {
-      otp: "",
-    },
+    defaultValues: { otp: "" },
   });
 
-  // --- NEW RESEND LOGIC ---
   async function onResend() {
     if (countdown > 0) return;
     if (!email) {
@@ -71,16 +66,16 @@ export default function VerifyForm() {
         return;
     }
     
-    setIsLoading(true);
+    // Set a small local load state for the resend button text
+    setIsLoading(true); 
     try {
-        // 2. Call the dedicated server action
         const result = await resendOtp(email);
 
         if (result.error) {
-            toast.error(result.error);
+            toast.error("Resend Failed", { description: result.error });
         } else {
             toast.success("Code resent!", { description: "Check your inbox." });
-            setCountdown(60); // Start 60s cooldown
+            setCountdown(60); 
         }
     } catch (error) {
         toast.error("Failed to resend code.");
@@ -92,13 +87,14 @@ export default function VerifyForm() {
   async function onSubmit(values) {
     if (!email) {
       toast.error("Email missing. Please register again.");
+      router.push("/register");
       return;
     }
 
     setIsLoading(true);
 
     try {
-      // Verify & Login via NextAuth
+      // Login via NextAuth (calls auth.js authorize())
       const res = await signIn("credentials", {
         redirect: false,
         email: email,
@@ -106,7 +102,9 @@ export default function VerifyForm() {
       });
 
       if (res?.error) {
-        toast.error(res.error === "Invalid OTP" ? "Incorrect code" : res.error);
+        toast.error("Verification Failed", {
+            description: res.error === "Invalid OTP" ? "Incorrect code. Please try again." : res.error
+        });
         form.reset();
         setIsLoading(false);
         return;
@@ -128,7 +126,6 @@ export default function VerifyForm() {
   return (
     <div className="w-full max-w-md space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
-      {/* Branding */}
       <div className="flex flex-col items-center text-center space-y-2">
         <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-zinc-900 text-white shadow-lg mb-2">
           <Brain className="h-6 w-6" />
@@ -180,7 +177,7 @@ export default function VerifyForm() {
 
           <Button
             type="submit"
-            className="w-full h-11 bg-zinc-900 hover:bg-zinc-800 text-white font-medium shadow-lg shadow-zinc-900/10 transition-all duration-200"
+            className="w-full h-11 bg-zinc-900 hover:bg-zinc-800 text-white font-medium shadow-lg"
             disabled={isLoading}
           >
             {isLoading ? (

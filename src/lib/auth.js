@@ -8,17 +8,11 @@ import { authRateLimit } from "@/lib/limiter";
 
 export const authOptions = {
   providers: [
-    // ------------------------------------------------
-    // GOOGLE PROVIDER
-    // ------------------------------------------------
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     }),
 
-    // ------------------------------------------------
-    // CREDENTIALS PROVIDER (PASSWORD + OTP)
-    // ------------------------------------------------
     CredentialsProvider({
       name: "Credentials",
       credentials: {
@@ -28,41 +22,40 @@ export const authOptions = {
       },
 
       async authorize(credentials) {
+        if (!credentials?.email) throw new Error("Email required.");
+
+        // 🔥 Normalize email ALWAYS
+        const email = credentials.email.toLowerCase();
+
         // 1. RATE LIMIT
-        if (credentials?.email) {
-          const { success } = await authRateLimit.limit(credentials.email);
-          if (!success)
-            throw new Error("Too many login attempts. Try again later.");
-        }
+        const { success } = await authRateLimit.limit(email);
+        if (!success) throw new Error("Too many login attempts. Try again later.");
 
         await connectDB();
 
-        // 2. FIND EXPERT ACCOUNT (WITH OTP FIELDS)
+        // 2. FIND USER (case-insensitive lookup)
         const user = await User.findOne({
-          email: credentials.email,
+          email,
           role: "expert",
-        }).select("+password +otp +otpExpiry"); // ⭐ FIXED
+        }).select("+password +otp +otpExpiry");
 
         if (!user) throw new Error("No expert account found. Please register.");
+        if (user.isBanned) throw new Error("This account has been suspended.");
 
-        // 3. BAN CHECK
-        if (user.isBanned) {
-          throw new Error("This account has been suspended.");
-        }
-
-        // ------------------------------------------------
-        // 🔐 OTP LOGIN (Email Verification / Registration)
-        // ------------------------------------------------
+        /* ------------------------------------------------
+         * OTP LOGIN
+         * ------------------------------------------------ */
         if (credentials.otp) {
           if (!user.otp || !user.otpExpiry)
             throw new Error("No OTP issued. Please request a new one.");
 
-          if (user.otp !== credentials.otp)
-            throw new Error("Invalid OTP");
+          // Compare OTP with hash
+          const isValidOtp = await bcrypt.compare(credentials.otp, user.otp);
+          if (!isValidOtp) throw new Error("Invalid OTP");
 
-          if (user.otpExpiry < new Date())
-            throw new Error("OTP has expired");
+          if (user.otpExpiry < new Date()) throw new Error("OTP has expired");
 
+          // OTP Success → Verify account
           user.isVerified = true;
           user.otp = undefined;
           user.otpExpiry = undefined;
@@ -71,9 +64,9 @@ export const authOptions = {
           return user;
         }
 
-        // ------------------------------------------------
-        // 🔒 PASSWORD LOGIN
-        // ------------------------------------------------
+        /* ------------------------------------------------
+         * PASSWORD LOGIN
+         * ------------------------------------------------ */
         if (credentials.password) {
           if (!user.password)
             throw new Error("Please login with Google or reset your password.");
@@ -81,68 +74,59 @@ export const authOptions = {
           if (!user.isVerified)
             throw new Error("Please verify your email first.");
 
-          const isMatch = await bcrypt.compare(
-            credentials.password,
-            user.password
-          );
-
+          const isMatch = await bcrypt.compare(credentials.password, user.password);
           if (!isMatch) throw new Error("Invalid credentials");
 
           return user;
         }
 
-        throw new Error("Invalid credentials");
+        throw new Error("Invalid login attempt.");
       },
     }),
   ],
 
-  // ------------------------------------------------
-  // CALLBACKS
-  // ------------------------------------------------
   callbacks: {
-    // ------------------------------------------------
-    // GOOGLE SIGN-IN CALLBACK (ACCOUNT LINKING)
-    // ------------------------------------------------
+    /* ----------------------------------------------------
+     * GOOGLE LOGIN FIX: Normalize email for all queries
+     * ---------------------------------------------------- */
     async signIn({ user, account, profile }) {
       if (account.provider === "google") {
         try {
           await connectDB();
 
-          const existingUser = await User.findOne({
-            email: user.email,
+          const normalizedEmail = (user.email || "").toLowerCase();
+
+          let existingUser = await User.findOne({
+            email: normalizedEmail,
             role: "expert",
           });
 
           if (existingUser) {
             if (existingUser.isBanned) return false;
 
-            // LINK GOOGLE IF NOT ALREADY LINKED
-            if (!existingUser.googleId) {
-              existingUser.googleId = profile.sub;
-            }
+            if (!existingUser.googleId) existingUser.googleId = profile.sub;
 
-            // Set avatar only if generic
+            // Update profile picture if generic avatar
             const isGeneric =
               !existingUser.image ||
               existingUser.image.includes("ui-avatars.com");
+
             if (isGeneric && profile.picture) {
               existingUser.image = profile.picture;
             }
 
-            if (!existingUser.isVerified) {
-              existingUser.isVerified = true;
-            }
+            if (!existingUser.isVerified) existingUser.isVerified = true;
 
             await existingUser.save();
             return true;
           }
 
-          // NO EXPERT EXISTS → CREATE ONE
-          const username = generateFromEmail(user.email, 3);
+          // Create new expert account
+          const username = generateFromEmail(normalizedEmail, 3);
 
           await User.create({
             name: user.name,
-            email: user.email,
+            email: normalizedEmail,
             image: user.image,
             username,
             role: "expert",
@@ -161,62 +145,32 @@ export const authOptions = {
       return true;
     },
 
-    // ------------------------------------------------
-    // JWT CALLBACK
-    // ------------------------------------------------
     async jwt({ token, user, trigger, session }) {
-      // On first login
       if (user) {
         token.id = user.id;
         token.picture = user.image;
         token.role = user.role;
       }
 
-      // When profile-form triggers session update()
       if (trigger === "update" && session) {
         token.name = session.user.name;
         token.email = session.user.email;
         token.picture = session.user.image;
-        return token;
-      }
-
-      // Revalidate Token -> Refresh user image/name if changed in DB
-      if (token.email) {
-        await connectDB();
-        const dbUser = await User.findOne({
-          email: token.email,
-          role: "expert",
-        });
-
-        if (dbUser) {
-          if (dbUser.isBanned) return null;
-
-          token.id = dbUser._id.toString();
-          token.picture = dbUser.image;
-          token.role = dbUser.role;
-        }
       }
 
       return token;
     },
 
-    // ------------------------------------------------
-    // SESSION CALLBACK
-    // ------------------------------------------------
     async session({ session, token }) {
-      if (!token) return null;
-
+      if (!token) return session;
       session.user.id = token.id;
       session.user.image = token.picture;
       session.user.role = token.role;
-
       return session;
     },
   },
 
   session: { strategy: "jwt" },
-
   secret: process.env.NEXTAUTH_SECRET,
-
   pages: { signIn: "/login" },
 };

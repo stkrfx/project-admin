@@ -5,9 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Globe, Clock, Trash2, AlertTriangle, Languages } from "lucide-react";
+import { Globe, Clock, Trash2, AlertTriangle, Languages, AlertCircle } from "lucide-react";
 import { TagInput } from "@/components/ui/tag-input";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 const TIMEZONES = [
   "Pacific/Midway", "US/Hawaii", "US/Alaska", "US/Pacific", "US/Mountain", "US/Central", "US/Eastern",
@@ -16,16 +17,14 @@ const TIMEZONES = [
   "Asia/Bangkok", "Asia/Singapore", "Asia/Shanghai", "Asia/Tokyo", "Australia/Sydney", "Pacific/Auckland"
 ];
 
-export function SettingsSection({ expert, languages, setLanguages }) {
-  // We manage timezone locally for the UI, but inject a hidden input 
-  // so the parent form picks it up automatically during submission.
+export function SettingsSection({ expert, languages, setLanguages, errors = {} }) {
   const [timezone, setTimezone] = useState(expert?.timezone || "Australia/Sydney");
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
       {/* 1. GLOBAL PREFERENCES */}
-      <Card className="border-zinc-200 shadow-sm bg-white">
+      <Card className={cn("border-zinc-200 shadow-sm bg-white transition-all", (errors.languages || errors.timezone) && "border-red-500 ring-1 ring-red-100")}>
         <CardHeader className="bg-zinc-50/30 border-b border-zinc-100 pb-6">
             <div className="flex items-center gap-3">
                 <div className="h-10 w-10 bg-white rounded-xl border border-zinc-200 flex items-center justify-center shadow-sm text-zinc-700">
@@ -42,14 +41,18 @@ export function SettingsSection({ expert, languages, setLanguages }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 {/* Languages */}
                 <div className="space-y-3">
-                    <Label className="text-xs font-bold text-zinc-500 uppercase tracking-wide flex items-center gap-2">
-                        <Languages className="h-3.5 w-3.5" /> Spoken Languages
-                    </Label>
+                    <div className="flex justify-between">
+                        <Label className={cn("text-xs font-bold uppercase tracking-wide flex items-center gap-2", errors.languages ? "text-red-600" : "text-zinc-500")}>
+                            <Languages className="h-3.5 w-3.5" /> Spoken Languages
+                        </Label>
+                        {errors.languages && <span className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="h-3 w-3"/> Required</span>}
+                    </div>
+                    
                     <TagInput 
                         placeholder="Add a language (e.g. English, French)..." 
                         tags={languages} 
                         setTags={setLanguages}
-                        className="bg-white min-h-[44px] border-zinc-200 focus-within:ring-indigo-500" 
+                        className={cn("bg-white min-h-[44px] border-zinc-200 focus-within:ring-indigo-500", errors.languages && "border-red-300 ring-red-200")} 
                     />
                     <p className="text-xs text-zinc-500">
                         These will be displayed on your profile to help match with relevant clients.
@@ -84,7 +87,7 @@ export function SettingsSection({ expert, languages, setLanguages }) {
         </CardContent>
       </Card>
 
-      {/* 2. DANGER ZONE */}
+      {/* 2. DANGER ZONE (Unchanged) */}
       <Card className="border-red-100 shadow-sm bg-red-50/10 overflow-hidden">
         <CardHeader className="border-b border-red-100 bg-red-50/30 pb-6">
             <div className="flex items-center gap-3">
@@ -97,22 +100,6 @@ export function SettingsSection({ expert, languages, setLanguages }) {
                 </div>
             </div>
         </CardHeader>
-        <CardContent className="p-6 md:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
-            <div className="space-y-1">
-                <h4 className="text-sm font-bold text-zinc-900">Deactivate Profile</h4>
-                <p className="text-sm text-zinc-500 max-w-md">
-                    Temporarily hide your profile from the public marketplace. You can reactivate it anytime.
-                </p>
-            </div>
-            <Button 
-                variant="outline" 
-                className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 hover:text-red-700 bg-white"
-                onClick={() => toast.error("Deactivation is restricted for active experts.")}
-            >
-                Deactivate Account
-            </Button>
-        </CardContent>
-        <div className="h-px bg-red-100 w-full" />
         <CardContent className="p-6 md:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="space-y-1">
                 <h4 className="text-sm font-bold text-zinc-900">Delete Account</h4>

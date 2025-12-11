@@ -2,16 +2,23 @@
 
 import connectDB from "@/lib/db";
 import User from "@/models/User";
+import bcrypt from "bcryptjs";
 
 export async function verifyOtp(email, otp) {
   try {
-    if (!email || !otp) {
+    // Normalize email ALWAYS
+    const normalizedEmail = email?.toLowerCase();
+
+    if (!normalizedEmail || !otp) {
       return { error: "Missing required fields." };
     }
 
     await connectDB();
 
-    const user = await User.findOne({ email });
+    // Always query using normalized email
+    const user = await User.findOne({ email: normalizedEmail }).select(
+      "+otp +otpExpiry"
+    );
 
     if (!user) {
       return { error: "User not found." };
@@ -21,20 +28,22 @@ export async function verifyOtp(email, otp) {
       return { success: "User already verified." };
     }
 
-    // Check OTP match
-    if (user.otp !== otp) {
+    // Check OTP hash
+    const isValid = await bcrypt.compare(otp, user.otp);
+    if (!isValid) {
       return { error: "Invalid OTP." };
     }
 
-    // Check Expiry
+    // Expiry check
     if (user.otpExpiry < new Date()) {
       return { error: "OTP has expired. Please register again." };
     }
 
-    // Verify User
+    // Mark verified & clean OTP fields
     user.isVerified = true;
     user.otp = undefined;
     user.otpExpiry = undefined;
+
     await user.save();
 
     return { success: "Account verified successfully!" };

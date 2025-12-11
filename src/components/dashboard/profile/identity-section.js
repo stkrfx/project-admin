@@ -7,12 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UploadButton } from "@/components/upload-button";
-import { User, Wand2, AtSign, MapPin, Camera, Sparkles, Globe, Mail, Linkedin, Twitter, Link as LinkIcon } from "lucide-react";
+import { User, Wand2, AtSign, MapPin, Camera, Sparkles, Globe, Mail, Linkedin, Twitter, Link as LinkIcon, AlertCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-export function IdentitySection({ user, setUserName, setUserUsername, setUserImage, expert, setGender, setLocation, socialLinks, setSocialLinks }) {
+export function IdentitySection({ user, setUserName, setUserUsername, setUserImage, expert, setGender, setLocation, socialLinks, setSocialLinks, errors = {} }) {
   const [isHovered, setIsHovered] = useState(false);
 
   const generateUsername = () => {
@@ -24,12 +24,11 @@ export function IdentitySection({ user, setUserName, setUserUsername, setUserIma
   };
 
   const updateSocial = (key, val) => {
-      // Ensure we always have an object
       setSocialLinks({ ...socialLinks, [key]: val });
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in fade-in duration-500">
         
         {/* --- LEFT: LIVE PREVIEW --- */}
         <div className="lg:col-span-4 space-y-6">
@@ -94,7 +93,7 @@ export function IdentitySection({ user, setUserName, setUserUsername, setUserIma
         <div className="lg:col-span-8 space-y-6">
             
             {/* 1. Personal Details */}
-            <Card className="border-zinc-200 shadow-sm">
+            <Card className={cn("border-zinc-200 shadow-sm transition-all", (errors.name || errors.username || errors.location) && "border-red-500 ring-1 ring-red-100")}>
                 <CardHeader className="border-b border-zinc-100 bg-zinc-50/30 pb-6">
                     <div className="flex items-center gap-2">
                         <div className="h-8 w-8 rounded-lg bg-indigo-50 flex items-center justify-center"><User className="h-4 w-4 text-indigo-600" /></div>
@@ -102,33 +101,62 @@ export function IdentitySection({ user, setUserName, setUserUsername, setUserIma
                     </div>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-8">
+                    
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Name Input */}
                         <div className="space-y-2">
-                            <Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Full Name</Label>
-                            {/* Fix: Fallback to "" */}
-                            <Input value={user.name || ""} onChange={(e) => setUserName(e.target.value)} className="h-11 bg-white" placeholder="e.g. Dr. Jane Doe"/>
+                            <div className="flex justify-between">
+                                <Label className={cn("text-xs font-semibold uppercase tracking-wider", errors.name ? "text-red-600" : "text-zinc-500")}>Full Name</Label>
+                                {errors.name && <span className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="h-3 w-3"/> {errors.name[0]}</span>}
+                            </div>
+                            <Input 
+                                value={user.name || ""} 
+                                onChange={(e) => setUserName(e.target.value)} 
+                                className={cn("h-11 bg-white", errors.name && "border-red-300 focus-visible:ring-red-200")} 
+                                placeholder="e.g. Dr. Jane Doe"
+                            />
                         </div>
+
+                        {/* Username Input */}
                         <div className="space-y-2">
-                            <Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Username</Label>
+                            <div className="flex justify-between">
+                                <Label className={cn("text-xs font-semibold uppercase tracking-wider", errors.username ? "text-red-600" : "text-zinc-500")}>Username</Label>
+                                {errors.username && <span className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="h-3 w-3"/> {errors.username[0]}</span>}
+                            </div>
                             <div className="relative flex items-center">
                                 <span className="absolute left-3 text-zinc-400"><AtSign className="h-4 w-4" /></span>
-                                <Input value={user.username || ""} onChange={(e) => setUserUsername(e.target.value)} className="pl-9 pr-12 h-11 bg-white" placeholder="janedoe"/>
+                                <Input 
+                                    value={user.username || ""} 
+                                    onChange={(e) => setUserUsername(e.target.value)} 
+                                    className={cn("pl-9 pr-12 h-11 bg-white", errors.username && "border-red-300 focus-visible:ring-red-200")} 
+                                    placeholder="janedoe"
+                                />
                                 <Button type="button" size="icon" variant="ghost" onClick={generateUsername} className="absolute right-1 h-9 w-9 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors" title="Auto-generate"><Wand2 className="h-4 w-4" /></Button>
                             </div>
                         </div>
                     </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                             <Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Email Address</Label>
                             <div className="relative"><Mail className="absolute left-3 top-3.5 h-4 w-4 text-zinc-400" /><Input value={user.email || ""} disabled className="pl-9 h-11 bg-zinc-50 text-zinc-500 cursor-not-allowed" /></div>
                         </div>
+                        
+                        {/* Location Input */}
                         <div className="space-y-2">
                             <Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Location</Label>
-                            <div className="relative"><MapPin className="absolute left-3 top-3.5 h-4 w-4 text-zinc-400" />
-                            {/* Fix: Fallback to "" */}
-                            <Input value={expert?.location || ""} onChange={(e) => setLocation(e.target.value)} placeholder="City, Country" className="pl-9 h-11 bg-white"/></div>
+                            <div className="relative">
+                                <MapPin className="absolute left-3 top-3.5 h-4 w-4 text-zinc-400" />
+                                <Input 
+                                    value={expert?.location || ""} 
+                                    onChange={(e) => setLocation(e.target.value)} 
+                                    placeholder="City, Country" 
+                                    className="pl-9 h-11 bg-white"
+                                />
+                            </div>
                         </div>
                     </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div className="space-y-2">
                             <Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Gender</Label>
@@ -155,7 +183,6 @@ export function IdentitySection({ user, setUserName, setUserUsername, setUserIma
                             <Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">LinkedIn URL</Label>
                             <div className="relative">
                                 <Linkedin className="absolute left-3 top-3.5 h-4 w-4 text-zinc-400" />
-                                {/* Fix: Fallback to "" to prevent null error */}
                                 <Input value={socialLinks?.linkedin || ""} onChange={(e) => updateSocial("linkedin", e.target.value)} placeholder="https://linkedin.com/in/..." className="pl-9 h-11 bg-white" />
                             </div>
                         </div>

@@ -14,7 +14,6 @@ const UserSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
       index: true,
-      // REMOVED: unique: true (We allow duplicates if roles are different)
     },
     password: {
       type: String,
@@ -28,35 +27,40 @@ const UserSchema = new mongoose.Schema(
       trim: true,
     },
     
-    // --- ROLE IS NOW PART OF THE UNIQUE IDENTITY ---
+    // --- ROLE CONFIGURATION ---
     role: {
       type: String,
       enum: ["user", "expert", "organisation", "admin"],
       required: true,
     },
 
-    // Auth Fields
+    // --- AUTH FIELDS ---
+    // OTP is stored as a Hash, so standard String type is perfect.
     otp: { type: String, select: false },
     otpExpiry: { type: Date, select: false },
+    
     isVerified: { type: Boolean, default: false },
+    
     provider: { type: String, default: "credentials" },
     googleId: { type: String, select: false },
 
-    // Ban & Security
+    // --- SECURITY & BANS ---
     isBanned: { type: Boolean, default: false },
     banReason: { type: String },
     bannedAt: { type: Date },
+    
     resetPasswordToken: { type: String, select: false },
     resetPasswordExpire: { type: Date, select: false },
   },
   { timestamps: true }
 );
 
-// --- THE FIX: COMPOUND UNIQUE INDEX ---
-// This ensures 'john@gmail.com' can exist ONCE as 'expert' and ONCE as 'user'
+// --- UNIQUE IDENTITY INDEX ---
+// Allows the same email to register once as 'expert' and once as 'user'
+// but prevents multiple 'expert' accounts with the same email.
 UserSchema.index({ email: 1, role: 1 }, { unique: true });
 
-// Virtual Link
+// Virtual Link to Profile
 UserSchema.virtual('expertProfile', {
   ref: 'ExpertProfile',
   localField: '_id',

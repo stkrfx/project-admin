@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -30,8 +30,9 @@ const formSchema = z.object({
 
 export default function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") || "/"; // UX: Respect user's destination
   
-  // State is now 'null', 'google', or 'credentials' to differentiate loading source
   const [loadingType, setLoadingType] = useState(null); 
   const [showPassword, setShowPassword] = useState(false);
 
@@ -46,7 +47,7 @@ export default function LoginForm() {
   const handleGoogleSignIn = async () => {
     setLoadingType("google");
     try {
-      await signIn("google", { callbackUrl: "/" });
+      await signIn("google", { callbackUrl });
     } catch (error) {
       toast.error("Google Sign-In failed. Please try again.");
       setLoadingType(null);
@@ -61,20 +62,22 @@ export default function LoginForm() {
         redirect: false,
         email: values.email,
         password: values.password,
+        // We do NOT pass callbackUrl here because redirect is false. 
+        // We handle navigation manually on success.
       });
 
       if (res?.error) {
-        toast.error("Authentication Failed", {
-          description: "Invalid email or password. Please try again.",
+        // UX: Show specific error from server (e.g., "Please verify your email first")
+        toast.error("Login Failed", {
+          description: res.error || "Invalid email or password.",
         });
-        setLoadingType(null); // Only reset on error
+        setLoadingType(null); 
       } else {
         toast.success("Welcome back!", {
           description: "Logged in successfully.",
         });
-        router.push("/"); 
+        router.push(callbackUrl); 
         router.refresh();
-        // Don't reset loading here to prevent UI flash while redirecting
       }
     } catch (error) {
       toast.error("Error", {
@@ -84,13 +87,11 @@ export default function LoginForm() {
     }
   }
 
-  // Derived state for cleaner JSX
   const isLoading = !!loadingType;
 
   return (
     <div className="w-full max-w-md space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
-      {/* 1. Branding */}
       <div className="flex flex-col items-center text-center space-y-2">
         <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-zinc-900 text-white shadow-lg mb-2">
           <Brain className="h-6 w-6" />
@@ -104,7 +105,6 @@ export default function LoginForm() {
       </div>
 
       <div className="space-y-4">
-        {/* 2. Google Login with Controlled State */}
         <GoogleButton 
           onClick={handleGoogleSignIn}
           isLoading={loadingType === "google"}
@@ -133,8 +133,8 @@ export default function LoginForm() {
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
                       <Input
                         placeholder="name@example.com"
-                        disabled={isLoading} // Disable input
-                        className="pl-9 h-11 bg-zinc-50/30 border-zinc-200 focus-visible:ring-zinc-900 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={isLoading}
+                        className="pl-9 h-11 bg-zinc-50/30 border-zinc-200 focus-visible:ring-zinc-900 transition-all disabled:opacity-50"
                         {...field}
                       />
                     </div>
@@ -155,7 +155,7 @@ export default function LoginForm() {
                       href="/forgot-password" 
                       className={cn(
                         "text-xs font-medium text-zinc-500 hover:text-zinc-900 hover:underline transition-colors",
-                        isLoading && "pointer-events-none opacity-50" // Disable Link
+                        isLoading && "pointer-events-none opacity-50"
                       )}
                     >
                       Forgot password?
@@ -168,14 +168,14 @@ export default function LoginForm() {
                       <Input
                         type={showPassword ? "text" : "password"}
                         placeholder="••••••••"
-                        disabled={isLoading} // Disable input
-                        className="pl-9 pr-10 h-11 bg-zinc-50/30 border-zinc-200 focus-visible:ring-zinc-900 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={isLoading}
+                        className="pl-9 pr-10 h-11 bg-zinc-50/30 border-zinc-200 focus-visible:ring-zinc-900 transition-all disabled:opacity-50"
                         {...field}
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        disabled={isLoading} // Disable toggle
+                        disabled={isLoading}
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 transition-colors disabled:opacity-50"
                       >
                         {showPassword ? (
@@ -217,7 +217,7 @@ export default function LoginForm() {
           href="/register"
           className={cn(
             "font-semibold text-zinc-900 hover:underline hover:text-zinc-700 transition-colors",
-            isLoading && "pointer-events-none opacity-50" // Disable Link
+            isLoading && "pointer-events-none opacity-50"
           )}
         >
           Sign up

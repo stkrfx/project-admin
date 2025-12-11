@@ -20,12 +20,13 @@ const ProfileSchema = z.object({
   specialization: z.string().min(2, "Headline is required"),
   bio: z.string().min(50, "Bio must be at least 50 characters"),
   
-  // Complex Fields (We validate them loosely here, UI handles strictness)
+  // Complex Fields
   workHistory: z.array(z.any()).optional(),
   education: z.array(z.any()).optional(),
   services: z.array(z.any()).optional(),
   languages: z.array(z.any()).optional(),
   tags: z.array(z.any()).optional(),
+  documents: z.array(z.any()).optional(),
   
   // Availability
   availability: z.array(z.any()).optional(),
@@ -43,12 +44,22 @@ export async function getProfile() {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return null;
 
-    let profile = await ExpertProfile.findOne({ user: session.user.id }).populate("user", "name email image username");
-
-    if (!profile) {
-      profile = await ExpertProfile.create({ user: session.user.id, isOnboarded: false });
-      profile = await ExpertProfile.findById(profile._id).populate("user", "name email image username");
-    }
+    // FIX: ATOMIC UPSERT (Find or Create in one go)
+    // Prevents race conditions where two profiles are created simultaneously.
+    let profile = await ExpertProfile.findOneAndUpdate(
+      { user: session.user.id },
+      { 
+        $setOnInsert: { 
+          isOnboarded: false,
+          user: session.user.id 
+        } 
+      },
+      { 
+        upsert: true, 
+        new: true, // Return the new document
+        setDefaultsOnInsert: true 
+      }
+    ).populate("user", "name email image username");
 
     // JIT: Apply Future Availability
     if (profile.futureAvailability?.validFrom && new Date() >= profile.futureAvailability.validFrom) {
@@ -60,7 +71,7 @@ export async function getProfile() {
 
     return JSON.parse(JSON.stringify(profile));
   } catch (error) {
-    console.error(error);
+    console.error("Get Profile Error:", error);
     return null;
   }
 }
@@ -101,26 +112,25 @@ export async function updateProfile(prevState, formData) {
     const validated = ProfileSchema.safeParse(rawData);
     
     if (!validated.success) {
-        // Return structured errors: { bio: ["Too short"], name: ["Required"] }
         return { success: false, errors: validated.error.flatten().fieldErrors, message: "Please fix the errors highlighted." };
     }
 
     const data = validated.data;
 
-    // 3. Check Username
+    // 3. Check Username (Unique check excluding current user)
     if (data.username) {
         const existing = await User.findOne({ username: data.username, _id: { $ne: session.user.id } });
         if (existing) return { success: false, errors: { username: ["Username is already taken"] }, message: "Username taken" };
     }
 
-    // 4. Update User
+    // 4. Update User Model
     await User.findByIdAndUpdate(session.user.id, { 
         name: data.name, 
         username: data.username, 
-        image: formData.get("image") 
+        image: formData.get("image") // Assuming image URL is passed, handling file upload is separate
     });
 
-    // 5. Update Profile
+    // 5. Update Profile Model
     const updatePayload = {
         draft: {
             bio: data.bio,
@@ -135,7 +145,7 @@ export async function updateProfile(prevState, formData) {
             documents: data.documents,
             socialLinks: { linkedin: data.linkedin, twitter: data.twitter, website: data.website }
         },
-        // Instant Updates
+        // Instant Updates (Availability logic)
         futureAvailability: {
             schedule: data.availability,
             leaves: data.leaves.map(l => ({ ...l, date: new Date(l.date) })),
@@ -152,7 +162,7 @@ export async function updateProfile(prevState, formData) {
     return { success: true, message: "Profile saved successfully." };
 
   } catch (error) {
-    console.error(error);
+    console.error("Update Profile Error:", error);
     return { success: false, message: "Something went wrong." };
   }
 }
