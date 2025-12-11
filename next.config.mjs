@@ -17,6 +17,10 @@ const nextConfig = {
         protocol: "https",
         hostname: "images.unsplash.com", // For your dashboard images
       },
+      {
+        protocol: "https",
+        hostname: "utfs.io",
+      },
     ],
   },
 };
