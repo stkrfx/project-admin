@@ -100,13 +100,13 @@ export default function ProfileForm({ initialData, isPending }) {
   return (
     <Tabs defaultValue="identity" className="w-full pb-20">
       
-      {/* --- NEW FLOATING STICKY BAR --- */}
-      {/* Rounded corners (rounded-full), shadow, and compact height */}
-      <div className="sticky top-20 z-40 mx-4 md:mx-auto max-w-5xl rounded-full border border-zinc-200 bg-white/90 backdrop-blur-md shadow-lg transition-all duration-300 ease-in-out mt-4 mb-8">
-         <form onSubmit={onSubmit} onChange={handleInputChange} className="px-2 h-14 flex items-center justify-between gap-2 md:gap-4">
+      {/* --- FLOATING STICKY BAR --- */}
+      <div className="sticky top-20 z-40 w-full rounded-full border border-zinc-200 bg-white/90 backdrop-blur-md shadow-lg transition-all duration-300 ease-in-out mt-0 mb-8">
+         <form onSubmit={onSubmit} onChange={handleInputChange} className="px-3 h-14 flex items-center justify-between w-full gap-4">
             
-            {/* LEFT: RESPONSIVE TABS (Icons on Mobile, Text on Desktop) */}
-            <TabsList className="bg-transparent p-0 h-full flex items-center gap-1">
+            {/* LEFT: TABS (SCROLLABLE & RESPONSIVE) */}
+            {/* Added 'flex-1 min-w-0' to force scrolling instead of pushing content off-screen */}
+            <TabsList className="bg-transparent p-0 h-auto flex flex-1 min-w-0 items-center justify-start gap-1 no-scrollbar scroll-smooth">
                 <ProfileTab value="identity" icon={User} label="Identity" />
                 <ProfileTab value="services" icon={Briefcase} label="Services" />
                 <ProfileTab value="availability" icon={Clock} label="Schedule" />
@@ -115,45 +115,45 @@ export default function ProfileForm({ initialData, isPending }) {
             </TabsList>
 
             {/* RIGHT: COMPACT ACTIONS */}
-            <div className="flex items-center gap-2 pr-2">
+            <div className="flex items-center gap-3 shrink-0 pl-3 border-l border-zinc-100">
                 
-                {/* 1. Mini Strength Indicator (Desktop Only) */}
-                <div className="hidden md:flex items-center gap-2 mr-2 px-3 py-1 bg-zinc-50 rounded-full border border-zinc-100" title="Profile Strength">
-                    <div className="relative h-5 w-5">
+                {/* Strength Indicator */}
+                <div className="hidden md:flex items-center gap-2 mr-1 px-2 py-1 bg-zinc-50 rounded-full border border-zinc-100" title="Profile Strength">
+                    <div className="relative h-4 w-4">
                         <svg className="h-full w-full -rotate-90" viewBox="0 0 36 36">
-                            <path className="text-zinc-200" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
-                            <path className="text-emerald-500 transition-all duration-500 ease-out" strokeDasharray={`${completionPercentage}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
+                            <path className="text-zinc-200" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="5" />
+                            <path className="text-emerald-500 transition-all duration-500 ease-out" strokeDasharray={`${completionPercentage}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="5" />
                         </svg>
                     </div>
-                    <span className="text-xs font-semibold text-zinc-600">{Math.round(completionPercentage)}%</span>
+                    <span className="text-[10px] font-bold text-zinc-600">{Math.round(completionPercentage)}%</span>
                 </div>
 
-                {/* 2. Discard Button */}
+                {/* Discard */}
                 {isDirty && (
                     <Button 
                         type="button" 
                         variant="ghost" 
                         size="icon"
                         onClick={() => window.location.reload()} 
-                        className="h-9 w-9 rounded-full text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                        className="h-8 w-8 rounded-full text-zinc-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                         title="Discard Changes"
                     >
                         <Undo2 className="h-4 w-4" />
                     </Button>
                 )}
 
-                {/* 3. Save Pill Button */}
+                {/* Save Pill */}
                 <Button 
                     type="submit" 
                     disabled={isLoading || !isDirty} 
                     size="sm"
-                    className={`h-9 px-5 rounded-full transition-all text-xs font-bold tracking-wide flex items-center gap-2
+                    className={`h-8 px-4 rounded-full transition-all text-xs font-bold tracking-wide flex items-center gap-2
                     ${isDirty 
                         ? "bg-zinc-900 text-white shadow-md hover:bg-zinc-800 hover:scale-105" 
                         : "bg-zinc-100 text-zinc-400 shadow-none cursor-not-allowed"
                     }`}
                 >
-                    {isLoading ? <Loader2 className="animate-spin h-3.5 w-3.5"/> : <Save className="h-3.5 w-3.5"/>}
+                    {isLoading ? <Loader2 className="animate-spin h-3 w-3"/> : <Save className="h-3 w-3"/>}
                     <span className="hidden sm:inline">{isPending ? "Update" : "Save"}</span>
                 </Button>
             </div>
@@ -161,7 +161,7 @@ export default function ProfileForm({ initialData, isPending }) {
       </div>
 
       {/* --- CONTENT SECTIONS --- */}
-      <div className="max-w-5xl mx-auto px-4 md:px-0 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <div className="w-full space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
           <TabsContent value="identity" className="focus-visible:ring-0 space-y-8 mt-0">
               <IdentitySection 
                   user={{ name: userName, username: userUsername, image: userImage }} 
@@ -199,17 +199,24 @@ export default function ProfileForm({ initialData, isPending }) {
 }
 
 // --- RESPONSIVE TAB COMPONENT ---
-// Automatically hides text on mobile to fit perfectly
 function ProfileTab({ value, icon: Icon, label }) {
     return (
         <TabsTrigger 
             value={value} 
-            className="group relative flex items-center justify-center gap-2 px-3 py-2.5 rounded-full text-sm font-medium text-zinc-500 transition-all outline-none select-none
-            data-[state=active]:text-zinc-900 data-[state=active]:bg-zinc-100 data-[state=active]:shadow-inner
+            className="group relative flex items-center justify-center gap-2 rounded-full transition-all outline-none select-none shrink-0
+            
+            /* Mobile Styles: Taller touch target, Icon only */
+            h-10 w-10 p-0 text-zinc-400
+            
+            /* Desktop Styles: Compact height, Text visible */
+            md:h-8 md:w-auto md:px-3 md:py-0 md:text-xs md:font-semibold md:text-zinc-500
+
+            /* Active States */
+            data-[state=active]:text-zinc-900 data-[state=active]:bg-zinc-100 data-[state=active]:shadow-sm
             hover:text-zinc-800 hover:bg-zinc-50"
             title={label}
         >
-            <Icon className="h-4 w-4 opacity-70 group-data-[state=active]:opacity-100 group-data-[state=active]:text-indigo-600 transition-colors" />
+            <Icon className="h-5 w-5 md:h-3.5 md:w-3.5 opacity-70 group-data-[state=active]:opacity-100 group-data-[state=active]:text-indigo-600 transition-colors" />
             <span className="hidden md:inline-block">{label}</span>
         </TabsTrigger>
     )

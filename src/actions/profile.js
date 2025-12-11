@@ -7,6 +7,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 
+// Helper: Get Tomorrow 00:00
+const getTomorrow = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+};
+
 export async function getProfile() {
   try {
     await connectDB();
@@ -17,17 +25,37 @@ export async function getProfile() {
       .populate("user", "name email image username isVerified");
 
     if (!profile) {
-      profile = await ExpertProfile.create({
-        user: session.user.id,
-        isOnboarded: false,
-        timezone: "Australia/Sydney",
-      });
-
-      profile = await ExpertProfile.findById(profile._id)
-        .populate("user", "name email image username isVerified");
+        profile = await ExpertProfile.create({ user: session.user.id, isOnboarded: false });
+        profile = await ExpertProfile.findById(profile._id).populate("user", "name email image username");
     }
 
-    return JSON.parse(JSON.stringify(profile));
+    // --- JIT SWAP LOGIC (The "Next Day" Magic) ---
+    // If we have a future schedule AND it's valid now (or past due), promote it.
+    if (profile.futureAvailability?.validFrom && new Date() >= profile.futureAvailability.validFrom) {
+        console.log("⚡ Applying Scheduled Availability Update...");
+        
+        // Promote Future -> Live
+        profile.availability = profile.futureAvailability.schedule;
+        profile.leaves = profile.futureAvailability.leaves;
+        
+        // Clear Future
+        profile.futureAvailability = { schedule: [], leaves: [], validFrom: null };
+        await profile.save();
+    }
+
+    // Prepare response
+    // If there is a pending future update, we show THAT to the user so they see what they edited.
+    // Otherwise show live.
+    const response = JSON.parse(JSON.stringify(profile));
+    
+    if (profile.futureAvailability?.validFrom) {
+        response.availability = profile.futureAvailability.schedule;
+        response.leaves = profile.futureAvailability.leaves;
+        response.isFuturePending = true; // Flag for UI
+    }
+
+    return response;
+
   } catch (error) {
     console.error("Get Profile Error:", error);
     return null;
@@ -38,61 +66,45 @@ export async function updateProfile(formData) {
   try {
     await connectDB();
     const session = await getServerSession(authOptions);
-
     if (!session?.user?.id) return { error: "Unauthorized" };
 
-    // -----------------------------------------
-    // 1️⃣ UPDATE BASIC USER FIELDS
-    // -----------------------------------------
     const name = formData.get("name");
     const username = formData.get("username");
     const image = formData.get("image");
+    if (name || username || image) await User.findByIdAndUpdate(session.user.id, { name, username, image });
 
-    if (name || username || image) {
-      await User.findByIdAndUpdate(session.user.id, {
-        name,
-        username,
-        image,
-      });
-    }
-
-    // -----------------------------------------
-    // 2️⃣ SAFE JSON PARSER
-    // -----------------------------------------
     const safeParse = (key) => {
-      try {
-        const raw = formData.get(key);
-        return raw ? JSON.parse(raw) : undefined;
-      } catch {
-        return [];
-      }
+        try { return formData.get(key) ? JSON.parse(formData.get(key)) : undefined; } 
+        catch { return []; }
     };
 
-    // -----------------------------------------
-    // 3️⃣ BUILD DRAFT UPDATE OBJECT
-    // -----------------------------------------
-    const rawUpdates = {
-      // Basic fields
+    // --- SCHEDULED UPDATES (Next Day) ---
+    // Instead of overwriting 'availability', we save to 'futureAvailability'
+    const futureUpdate = {
+        futureAvailability: {
+            schedule: safeParse("availability"),
+            leaves: safeParse("leaves").map(l => ({
+                date: new Date(l.date),
+                isRecurring: l.isRecurring,
+                note: l.note
+            })),
+            validFrom: getTomorrow() // <--- Activates Tomorrow
+        }
+    };
+
+    // --- DRAFT UPDATES (Admin Verify) ---
+    const draftUpdates = {
       bio: formData.get("bio"),
       specialization: formData.get("specialization"),
       education: formData.get("education"),
       location: formData.get("location"),
       timezone: formData.get("timezone"),
       gender: formData.get("gender"),
-
       experienceYears: Number(formData.get("experienceYears")) || 0,
-
-      // Arrays
       languages: safeParse("languages"),
       tags: safeParse("tags"),
-      services: safeParse("services"),
-      availability: safeParse("availability"),
+      services: safeParse("services"), 
       documents: safeParse("documents"),
-
-      // ⭐ NEW — Convert leaves[] into actual Date objects
-      leaves: safeParse("leaves")?.map((d) => new Date(d)) || [],
-
-      // Nested
       socialLinks: {
         linkedin: formData.get("linkedin"),
         twitter: formData.get("twitter"),
@@ -100,26 +112,23 @@ export async function updateProfile(formData) {
       },
     };
 
-    // -----------------------------------------
-    // 4️⃣ SAVE TO DRAFT + RESET REVIEW FLAGS
-    // -----------------------------------------
     await ExpertProfile.findOneAndUpdate(
       { user: session.user.id },
       {
         $set: {
-          draft: rawUpdates,
-          hasPendingUpdates: true,  // Goes to admin review
+          ...futureUpdate,            // Saves to future bucket
+          draft: draftUpdates,        
+          hasPendingUpdates: true,    
           isOnboarded: true,
-          rejectionReason: null, // ⭐ Auto-clear rejection when resubmitted
-        },
+          rejectionReason: null 
+        }
       },
       { new: true, upsert: true }
     );
 
-    // Refresh UI
     revalidatePath("/profile");
+    return { success: "Profile updated successfully." };
 
-    return { success: "Profile submitted for verification." };
   } catch (error) {
     console.error("Update Profile Error:", error);
     return { error: "Failed to update profile." };
