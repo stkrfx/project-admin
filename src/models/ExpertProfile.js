@@ -4,10 +4,10 @@ import mongoose, { Schema } from "mongoose";
 
 const DocumentSchema = new Schema({
   title: { type: String, required: true, trim: true },
-  category: { type: String, required: true },
+  category: { type: String, required: true }, // e.g. "Degree", "License"
   url: { type: String, required: true },
   fileType: { type: String, enum: ["image", "pdf"], required: true },
-  fileSize: { type: String },
+  fileSize: { type: String }, // e.g. "2.5 MB"
 }, { _id: false });
 
 const ServiceSchema = new Schema({
@@ -21,20 +21,20 @@ const ServiceSchema = new Schema({
 
 // NEW: Structured Work History
 const WorkHistorySchema = new Schema({
-  company: { type: String, required: true },
-  role: { type: String, required: true },
-  location: String,
+  company: { type: String, required: true, trim: true },
+  role: { type: String, required: true, trim: true },
+  location: { type: String, trim: true },
   startDate: { type: Date, required: true },
   endDate: { type: Date }, // Null if current
   current: { type: Boolean, default: false },
-  description: String,
+  description: { type: String, maxlength: 1000 },
 }, { _id: false });
 
 // NEW: Structured Education
 const EducationSchema = new Schema({
-  institution: { type: String, required: true }, // College/University
-  degree: { type: String, required: true },      // e.g. B.Sc, PhD
-  fieldOfStudy: { type: String, required: true }, // e.g. Computer Science
+  institution: { type: String, required: true, trim: true }, 
+  degree: { type: String, required: true, trim: true },      
+  fieldOfStudy: { type: String, required: true, trim: true }, 
   startDate: { type: Date, required: true },
   endDate: { type: Date },
   current: { type: Boolean, default: false },
@@ -67,16 +67,16 @@ const ExpertProfileSchema = new mongoose.Schema(
     socialLinks: { linkedin: String, twitter: String, website: String },
 
     // --- PROFESSIONAL DATA ---
-    specialization: { type: String, trim: true, default: "", index: true },
-    tags: { type: [String], default: [], index: true },
+    specialization: { type: String, trim: true, default: "", index: true }, // Headline
+    tags: { type: [String], default: [], index: true }, // Skills
     
     // NEW: Structured Arrays
     workHistory: { type: [WorkHistorySchema], default: [] },
-    education: { type: [EducationSchema], default: [] }, // Renamed from string to array
+    education: { type: [EducationSchema], default: [] }, 
     
-    // Calculated Fields (Read-Only mostly)
+    // Calculated Fields (Read-Only)
     experienceYears: { type: Number, min: 0, default: 0 },
-    latestEducation: { type: String, default: "" }, // Formatted string for display
+    latestEducation: { type: String, default: "" }, // Formatted string for display cards
 
     // --- SERVICES & AVAILABILITY ---
     startingPrice: { type: Number, default: 0, index: true },
@@ -85,14 +85,14 @@ const ExpertProfileSchema = new mongoose.Schema(
     availability: { type: [AvailabilitySlotSchema], default: [] },
     leaves: { type: [LeaveSchema], default: [] },
     
-    // Future Schedule bucket
+    // Future Schedule Bucket (Apply from Next Day)
     futureAvailability: {
         schedule: { type: [AvailabilitySlotSchema], default: [] },
         leaves: { type: [LeaveSchema], default: [] },
         validFrom: { type: Date, default: null }
     },
 
-    // --- DRAFT BUCKET ---
+    // --- DRAFT BUCKET (For Admin Verification) ---
     draft: {
       bio: String,
       specialization: String,
@@ -137,21 +137,19 @@ ExpertProfileSchema.pre('save', function(next) {
     this.consultationModes = [];
   }
 
-  // 2. Auto-Calculate Experience Years
-  // We check both live 'workHistory' or 'draft.workHistory' depending on which one is being saved/promoted
-  // For safety, we usually calculate based on what will be LIVE. 
-  // If this is a draft save, we might skip this, but let's calculate it based on the LIVE data for now.
+  // 2. Auto-Calculate Experience Years from Work History
   if (this.workHistory && this.workHistory.length > 0) {
     let totalMonths = 0;
-    this.workHistory.forEach(job => {
-        const start = new Date(job.startDate);
-        const end = job.current ? new Date() : (job.endDate ? new Date(job.endDate) : new Date());
-        
-        // Simple month difference
-        const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
-        if (months > 0) totalMonths += months;
-    });
-    this.experienceYears = Math.floor(totalMonths / 12);
+    // Calculate overlap-aware experience would be complex, doing simple sum of durations for now
+    // Ideally, sort by date and merge overlapping intervals.
+    // For simplicity/robustness here: We calculate "Career Span" (Earliest Start to Present)
+    const earliestStart = this.workHistory.reduce((min, job) => 
+        job.startDate < min ? job.startDate : min, new Date()
+    );
+    const now = new Date();
+    const spanMonths = (now.getFullYear() - earliestStart.getFullYear()) * 12 + (now.getMonth() - earliestStart.getMonth());
+    
+    this.experienceYears = Math.max(0, Math.floor(spanMonths / 12));
   }
 
   // 3. Auto-Derive Latest Education String

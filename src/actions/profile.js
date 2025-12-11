@@ -6,8 +6,82 @@ import User from "@/models/User";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
-// Helper: Get Tomorrow 00:00
+// --- 1. DEFINE VALIDATION SCHEMAS ---
+
+const WorkHistorySchema = z.object({
+  company: z.string().min(1, "Company name is required"),
+  role: z.string().min(1, "Role is required"),
+  startDate: z.coerce.date({ invalid_type_error: "Start date is invalid" }),
+  endDate: z.coerce.date().nullable().optional(),
+  current: z.boolean().optional(),
+}).refine((data) => data.current || data.endDate, {
+  message: "End date is required for past jobs",
+  path: ["endDate"],
+});
+
+const EducationSchema = z.object({
+  institution: z.string().min(1, "Institution is required"),
+  degree: z.string().min(1, "Degree is required"),
+  fieldOfStudy: z.string().min(1, "Field of study is required"),
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date().nullable().optional(),
+});
+
+const ServiceSchema = z.object({
+  name: z.string().min(2, "Service name is too short"),
+  duration: z.coerce.number().min(15, "Duration must be at least 15 min"),
+  price: z.coerce.number().min(0, "Price cannot be negative"),
+  type: z.enum(["video", "clinic", "chat", "phone"]),
+  currency: z.string().default("AUD"),
+  description: z.string().max(500, "Description too long").optional().or(z.literal("")),
+});
+
+// Main Profile Schema
+const ProfileUpdateSchema = z.object({
+  // Identity
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  username: z.string().min(3, "Username must be at least 3 characters")
+    .regex(/^[a-z0-9]+$/, "Username must be lowercase alphanumeric"),
+  gender: z.enum(["Male", "Female", "Non-Binary", "Prefer not to say", ""]).optional(),
+  location: z.string().max(100).optional(),
+  
+  // Professional
+  bio: z.string().max(2000, "Bio cannot exceed 2000 characters").optional(),
+  specialization: z.string().max(100, "Headline is too long").optional(),
+  experienceYears: z.coerce.number().min(0).default(0),
+  
+  // Arrays
+  workHistory: z.array(WorkHistorySchema).optional(),
+  education: z.array(EducationSchema).optional(),
+  services: z.array(ServiceSchema).optional(),
+  languages: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  
+  // Objects
+  documents: z.array(z.any()).optional(), // Document structure validated loosely or via sub-schema
+  socialLinks: z.object({
+    linkedin: z.string().optional().or(z.literal("")),
+    twitter: z.string().optional().or(z.literal("")),
+    website: z.string().optional().or(z.literal("")),
+  }).optional(),
+  
+  // Availability
+  availability: z.array(z.object({
+    dayOfWeek: z.string(),
+    startTime: z.string(),
+    endTime: z.string()
+  })).optional(),
+  leaves: z.array(z.object({
+    date: z.coerce.date(),
+    isRecurring: z.boolean(),
+    note: z.string().optional()
+  })).optional()
+});
+
+
+// --- HELPER: TOMORROW DATE ---
 const getTomorrow = () => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -15,6 +89,7 @@ const getTomorrow = () => {
     return d;
 };
 
+// --- READ ACTION ---
 export async function getProfile() {
   try {
     await connectDB();
@@ -30,18 +105,15 @@ export async function getProfile() {
         isOnboarded: false,
         timezone: "Australia/Sydney",
       });
-
       profile = await ExpertProfile.findById(profile._id)
         .populate("user", "name email image username isVerified");
     }
 
-    // --- JIT SWAP LOGIC (Apply Future Availability) ---
+    // JIT: Apply Future Availability
     if (profile.futureAvailability?.validFrom && new Date() >= profile.futureAvailability.validFrom) {
-        console.log("⚡ Applying Scheduled Availability Update...");
-        
+        console.log(`⚡ Applying Scheduled Availability for ${session.user.email}`);
         profile.availability = profile.futureAvailability.schedule;
         profile.leaves = profile.futureAvailability.leaves;
-        
         profile.futureAvailability = { schedule: [], leaves: [], validFrom: null };
         await profile.save();
     }
@@ -53,100 +125,110 @@ export async function getProfile() {
   }
 }
 
+// --- WRITE ACTION ---
 export async function updateProfile(formData) {
   try {
     await connectDB();
     const session = await getServerSession(authOptions);
-
     if (!session?.user?.id) return { error: "Unauthorized" };
 
-    // -----------------------------------------
-    // 1️⃣ UPDATE BASIC USER FIELDS
-    // -----------------------------------------
-    const name = formData.get("name");
-    const username = formData.get("username");
-    const image = formData.get("image");
-
-    if (name || username || image) {
-      // Check username uniqueness if changed
-      if (username) {
-          const existingUser = await User.findOne({ username, _id: { $ne: session.user.id } });
-          if (existingUser) return { error: "Username is already taken." };
-      }
-      await User.findByIdAndUpdate(session.user.id, { name, username, image });
-    }
-
-    // -----------------------------------------
-    // 2️⃣ SAFE JSON PARSER
-    // -----------------------------------------
-    const safeParse = (key) => {
-      try {
-        const raw = formData.get(key);
-        return raw ? JSON.parse(raw) : undefined;
-      } catch {
-        return [];
-      }
+    // 1. EXTRACT & PARSE RAW DATA
+    const parseJSON = (key) => {
+        try {
+            const val = formData.get(key);
+            return val ? JSON.parse(val) : [];
+        } catch { return []; }
     };
 
-    // -----------------------------------------
-    // 3️⃣ BUILD UPDATE OBJECTS
-    // -----------------------------------------
+    const rawData = {
+        name: formData.get("name"),
+        username: formData.get("username"),
+        gender: formData.get("gender"),
+        location: formData.get("location"),
+        bio: formData.get("bio"),
+        specialization: formData.get("specialization"),
+        experienceYears: formData.get("experienceYears"),
+        
+        workHistory: parseJSON("workHistory"),
+        education: parseJSON("education"),
+        services: parseJSON("services"),
+        languages: parseJSON("languages"),
+        tags: parseJSON("tags"),
+        documents: parseJSON("documents"),
+        availability: parseJSON("availability"),
+        leaves: parseJSON("leaves"),
+        
+        socialLinks: {
+            linkedin: formData.get("linkedin"),
+            twitter: formData.get("twitter"),
+            website: formData.get("website"),
+        }
+    };
+
+    // 2. VALIDATE DATA
+    const validation = ProfileUpdateSchema.safeParse(rawData);
+
+    if (!validation.success) {
+        // Return the first validation error message
+        const firstError = validation.error.issues[0];
+        return { error: `${firstError.path.join('.')}: ${firstError.message}` };
+    }
+
+    const data = validation.data;
+
+    // 3. IDENTITY UPDATES (User Model)
+    // Check username uniqueness if changed
+    if (data.username) {
+        const existingUser = await User.findOne({ username: data.username, _id: { $ne: session.user.id } });
+        if (existingUser) return { error: "Username is already taken." };
+    }
     
-    // A. INSTANT UPDATES (Availability - No Review Needed)
-    // We save these to 'futureAvailability' to apply from tomorrow
-    const instantUpdates = {
+    const image = formData.get("image"); // Image URL usually trusted from uploadthing
+    await User.findByIdAndUpdate(session.user.id, { 
+        name: data.name, 
+        username: data.username, 
+        image 
+    });
+
+    // 4. PREPARE UPDATES
+    // Instant Updates (Availability) -> Future Bucket
+    const futureUpdate = {
         futureAvailability: {
-            schedule: safeParse("availability"),
-            leaves: safeParse("leaves").map(l => ({
-                date: new Date(l.date),
-                isRecurring: l.isRecurring,
-                note: l.note
-            })),
+            schedule: data.availability,
+            leaves: data.leaves,
             validFrom: getTomorrow() 
         }
     };
 
-    // B. DRAFT UPDATES (Requires Verification)
+    // Draft Updates (Profile Content) -> Draft Bucket
     const draftUpdates = {
-      // Basic Fields
-      bio: formData.get("bio"),
-      specialization: formData.get("specialization"),
-      gender: formData.get("gender"),
-      location: formData.get("location"),
-      timezone: formData.get("timezone"),
-      experienceYears: Number(formData.get("experienceYears")) || 0,
+      bio: data.bio,
+      specialization: data.specialization,
+      gender: data.gender,
+      location: data.location,
+      experienceYears: data.experienceYears,
+      timezone: formData.get("timezone"), // Not strictly validated yet
 
-      // Arrays (Parsed from JSON strings)
-      languages: safeParse("languages"),
-      tags: safeParse("tags"),
-      documents: safeParse("documents"),
-      services: safeParse("services"),
-      
-      // FIX: Use safeParse for Education & Work History
-      education: safeParse("education"),
-      workHistory: safeParse("workHistory"),
-
-      // Nested
-      socialLinks: {
-        linkedin: formData.get("linkedin"),
-        twitter: formData.get("twitter"),
-        website: formData.get("website"),
-      },
+      workHistory: data.workHistory,
+      education: data.education,
+      languages: data.languages,
+      tags: data.tags,
+      services: data.services,
+      documents: data.documents,
+      socialLinks: data.socialLinks,
     };
 
-    // -----------------------------------------
-    // 4️⃣ SAVE TO DB
-    // -----------------------------------------
+    // 5. SAVE TO DB
     await ExpertProfile.findOneAndUpdate(
       { user: session.user.id },
       {
         $set: {
-          ...instantUpdates,       // Saves to future bucket
-          draft: draftUpdates,     // Saves to draft bucket
-          hasPendingUpdates: true, // Triggers Admin Review
+          ...futureUpdate,
+          draft: draftUpdates,
+          hasPendingUpdates: true,
           isOnboarded: true,
-          rejectionReason: null,   // Clear previous rejection
-        },
+          rejectionReason: null, 
+        }
       },
       { new: true, upsert: true }
     );
@@ -156,6 +238,6 @@ export async function updateProfile(formData) {
 
   } catch (error) {
     console.error("Update Profile Error:", error);
-    return { error: "Failed to update profile." };
+    return { error: "Failed to save profile. Please try again." };
   }
 }
