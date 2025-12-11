@@ -1,22 +1,23 @@
 /*
  * File: src/models/ExpertProfile.js
- * Description: Expert Business Model with Draft Verification for Documents.
+ * Description: Expert Business Model with Draft Verification, Documents & Rejection Reason.
  */
 
 import mongoose, { Schema } from "mongoose";
 
-// --- SUB-SCHEMAS ---
-const DocumentSchema = new Schema({
-  title: { type: String, required: true, trim: true },
-  url: { type: String, required: true },
-  type: {
-    type: String,
-    required: true,
-    enum: ["image", "pdf"],
-  },
-}, { _id: false });
+// ------------------------------------------------------------------
+// SUB-SCHEMAS
+// ------------------------------------------------------------------
 
-// ... (Keep ReviewSchema, ServiceSchema, AvailabilitySlotSchema as they were) ...
+const DocumentSchema = new Schema(
+  {
+    title: { type: String, required: true, trim: true },
+    url: { type: String, required: true },
+    type: { type: String, required: true, enum: ["image", "pdf"] },
+  },
+  { _id: false }
+);
+
 const ReviewSchema = new Schema({
   reviewerName: { type: String, required: true, trim: true },
   rating: { type: Number, required: true, min: 1, max: 5 },
@@ -25,7 +26,7 @@ const ReviewSchema = new Schema({
 });
 
 const ServiceSchema = new Schema({
-  name: { type: String, required: true, trim: true }, 
+  name: { type: String, required: true, trim: true },
   duration: { type: Number, required: true, min: 15 },
   type: { type: String, enum: ["video", "clinic", "chat", "phone"], required: true },
   price: { type: Number, required: true, min: 0 },
@@ -33,20 +34,27 @@ const ServiceSchema = new Schema({
   description: { type: String, maxlength: 300 },
 });
 
-const AvailabilitySlotSchema = new Schema({
-  dayOfWeek: { type: String, required: true },
-  startTime: { type: String, required: true },
-  endTime: { type: String, required: true },
-}, { _id: false });
+const AvailabilitySlotSchema = new Schema(
+  {
+    dayOfWeek: { type: String, required: true },
+    startTime: { type: String, required: true },
+    endTime: { type: String, required: true },
+  },
+  { _id: false }
+);
 
+// ------------------------------------------------------------------
+// MAIN SCHEMA
+// ------------------------------------------------------------------
 
-// --- MAIN SCHEMA ---
 const ExpertProfileSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, unique: true, index: true },
     organization: { type: mongoose.Schema.Types.ObjectId, ref: "Organization", default: null, index: true },
 
-    // --- 1. LIVE DATA ---
+    // -------------------------------
+    // LIVE DATA
+    // -------------------------------
     bio: { type: String, trim: true, maxlength: 2000, default: "" },
     specialization: { type: String, trim: true, default: "", index: true },
     timezone: { type: String, default: "Australia/Sydney" },
@@ -60,7 +68,9 @@ const ExpertProfileSchema = new mongoose.Schema(
     tags: { type: [String], default: [], index: true },
     socialLinks: { linkedin: String, twitter: String, website: String },
 
-    // --- 2. DRAFT DATA (Updated to include Documents) ---
+    // -------------------------------
+    // DRAFT DATA (Including Documents)
+    // -------------------------------
     draft: {
       bio: String,
       specialization: String,
@@ -72,23 +82,32 @@ const ExpertProfileSchema = new mongoose.Schema(
       languages: [String],
       tags: [String],
       socialLinks: { linkedin: String, twitter: String, website: String },
-      
-      // ADDED: Documents in Draft
-      documents: [DocumentSchema] 
+
+      // Draft documents (NEW)
+      documents: [DocumentSchema],
     },
 
-    // --- FLAGS ---
-    hasPendingUpdates: { type: Boolean, default: false },
-    isVetted: { type: Boolean, default: false },
-    isOnboarded: { type: Boolean, default: false },
+    // -------------------------------
+    // FLAGS (Updated to include rejectionReason)
+    // -------------------------------
+    hasPendingUpdates: { type: Boolean, default: false }, // Yellow
+    isVetted: { type: Boolean, default: false },          // Green
+    isOnboarded: { type: Boolean, default: false },       // Fresh signup
 
-    // --- COMPLEX DATA ---
-    documents: { type: [DocumentSchema], default: [] }, // Live Documents
+    // NEW: Red state → Admin rejected profile
+    rejectionReason: { type: String, default: null },
+
+    // -------------------------------
+    // COMPLEX DATA
+    // -------------------------------
+    documents: { type: [DocumentSchema], default: [] }, // Live verified documents
     reviews: { type: [ReviewSchema], default: [] },
     services: { type: [ServiceSchema], default: [] },
     availability: { type: [AvailabilitySlotSchema], default: [] },
 
-    // --- STATUS ---
+    // -------------------------------
+    // STATUS
+    // -------------------------------
     isOnline: { type: Boolean, default: false, index: true },
     lastSeen: { type: Date, default: Date.now },
     rating: { type: Number, default: 0, min: 0, max: 5, index: true },
@@ -97,18 +116,27 @@ const ExpertProfileSchema = new mongoose.Schema(
   { timestamps: true, collection: "expert_profiles" }
 );
 
-// Hooks
-ExpertProfileSchema.pre('save', function(next) {
+// ------------------------------------------------------------------
+// HOOKS
+// ------------------------------------------------------------------
+
+ExpertProfileSchema.pre("save", function (next) {
+  // Compute startingPrice + consultation modes from services
   if (this.services && this.services.length > 0) {
-    const minPrice = Math.min(...this.services.map(s => s.price));
+    const minPrice = Math.min(...this.services.map((s) => s.price));
     this.startingPrice = minPrice;
-    const modes = new Set(this.services.map(s => s.type));
+
+    const modes = new Set(this.services.map((s) => s.type));
     this.consultationModes = Array.from(modes);
   } else {
     this.startingPrice = 0;
     this.consultationModes = [];
   }
+
   next();
 });
 
-export default mongoose.models.ExpertProfile || mongoose.model("ExpertProfile", ExpertProfileSchema);
+// ------------------------------------------------------------------
+
+export default mongoose.models.ExpertProfile ||
+  mongoose.model("ExpertProfile", ExpertProfileSchema);

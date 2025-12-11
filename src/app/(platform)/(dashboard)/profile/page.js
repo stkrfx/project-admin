@@ -1,75 +1,74 @@
 import { getProfile } from "@/actions/profile";
 import ProfileForm from "@/components/dashboard/profile-form";
-import { AlertCircle, CheckCircle2, Clock } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Clock, ShieldAlert, CheckCircle2, ExternalLink, Eye } from "lucide-react";
+import Link from "next/link";
 
 export default async function ProfilePage() {
   const profile = await getProfile();
 
-  if (!profile) {
-    return <div>Loading...</div>; // Or redirect to setup
-  }
+  if (!profile) return <div>Loading...</div>;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8">
+    <div className="max-w-5xl mx-auto space-y-6 pb-20">
       
-      {/* 1. Header & Context */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900">Expert Profile</h1>
-        <p className="text-zinc-500">
-          Manage your public appearance and expertise details.
-        </p>
+      {/* HEADER: Context & Actions */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-zinc-900">Expert Profile</h1>
+          <p className="text-zinc-500">Manage your bio, services, and availability.</p>
+        </div>
+        <div className="flex items-center gap-3">
+            {profile.isVetted && (
+                <Button variant="outline" asChild className="hidden sm:flex gap-2">
+                    <Link href={`/experts/${profile._id}`} target="_blank">
+                        <Eye className="h-4 w-4" /> View Public Page
+                    </Link>
+                </Button>
+            )}
+        </div>
       </div>
 
-      {/* 2. STATUS BANNERS (The Critical "Verification" Logic) */}
-      
-      {/* SCENARIO A: Pending Review */}
-      {profile.hasPendingUpdates && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-start gap-4 animate-in slide-in-from-top-2">
-          <Clock className="h-5 w-5 text-yellow-600 mt-0.5" />
-          <div>
-            <h4 className="font-semibold text-yellow-900">Changes Pending Approval</h4>
-            <p className="text-sm text-yellow-700 mt-1">
-              You have made changes that are waiting for admin verification. 
-              Your <strong>Live Profile</strong> will continue to show your old details until these are approved.
-            </p>
-          </div>
-        </div>
+      {/* STATUS BANNERS: The "Truth" Source */}
+      {/* 1. Rejected (Critical) */}
+      {profile.rejectionReason && (
+        <Alert variant="destructive" className="bg-red-50 border-red-200 text-red-900">
+          <ShieldAlert className="h-4 w-4 text-red-600" />
+          <AlertTitle className="font-bold">Profile Rejected</AlertTitle>
+          <AlertDescription>
+            Reason: <strong>{profile.rejectionReason}</strong>. Please fix the issues below and resubmit.
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* SCENARIO B: Fully Verified & Live */}
-      {!profile.hasPendingUpdates && profile.isVetted && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-4">
-          <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5" />
-          <div>
-            <h4 className="font-semibold text-emerald-900">Profile is Live</h4>
-            <p className="text-sm text-emerald-700 mt-1">
-              Your profile is verified and visible to clients. Any new edits will require re-verification.
-            </p>
-          </div>
-        </div>
+      {/* 2. Pending (Info) */}
+      {!profile.rejectionReason && profile.hasPendingUpdates && (
+        <Alert className="bg-yellow-50 border-yellow-200 text-yellow-900">
+          <Clock className="h-4 w-4 text-yellow-600" />
+          <AlertTitle className="font-bold">Verification in Progress</AlertTitle>
+          <AlertDescription>
+            You have unsaved changes pending admin review. Your public profile remains unchanged until approved.
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* SCENARIO C: Not Onboarded (New Account) */}
-      {!profile.isVetted && !profile.hasPendingUpdates && (
-        <div className="bg-zinc-100 border border-zinc-200 rounded-xl p-4 flex items-start gap-4">
-          <AlertCircle className="h-5 w-5 text-zinc-500 mt-0.5" />
-          <div>
-            <h4 className="font-semibold text-zinc-900">Profile Unpublished</h4>
-            <p className="text-sm text-zinc-600 mt-1">
-              Please complete your details and submit for verification to go live.
-            </p>
-          </div>
-        </div>
+      {/* 3. Live (Success) */}
+      {profile.isVetted && !profile.hasPendingUpdates && (
+        <Alert className="bg-emerald-50 border-emerald-200 text-emerald-900">
+          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+          <AlertTitle className="font-bold">You are Live!</AlertTitle>
+          <AlertDescription>
+            Your profile is active and visible to clients.
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* 3. The Form (Passed with Draft data if available) */}
-      <div className="bg-white border border-zinc-200 rounded-2xl p-6 shadow-sm">
-        <ProfileForm 
-          // If draft exists, show draft. Otherwise show live.
-          initialData={profile.draft || profile} 
-          isPending={profile.hasPendingUpdates}
-        />
-      </div>
+      {/* THE FORM ENGINE */}
+      <ProfileForm 
+        initialData={profile.draft || profile} 
+        isPending={profile.hasPendingUpdates}
+      />
     </div>
   );
 }
