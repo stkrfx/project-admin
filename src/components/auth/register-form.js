@@ -51,7 +51,7 @@ export default function RegisterForm() {
   const handleGoogleSignUp = async () => {
     setLoadingType("google");
     try {
-      await signIn("google", { callbackUrl: "/dashboard" });
+      await signIn("google", { callbackUrl: "/" });
     } catch (error) {
       toast.error("Google Sign-Up failed. Please try again.");
       setLoadingType(null);

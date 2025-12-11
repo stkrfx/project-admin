@@ -13,9 +13,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area"; // Requires: npx shadcn@latest add scroll-area
+import { ScrollArea } from "@/components/ui/scroll-area";
 
-// Mock Initial Data
+// Mock Data
 const initialNotifications = [
   {
     id: 1,
@@ -71,7 +71,17 @@ export function NotificationsNav() {
         </Button>
       </DropdownMenuTrigger>
       
-      <DropdownMenuContent className="w-80 p-0" align="end" forceMount>
+      {/* FIX APPLIED: 
+         1. collisionPadding={16}: Ensures 16px gap from screen edges on mobile.
+         2. sm:w-80: Standard 320px width on tablets/desktop.
+         3. w-[calc(100vw-2rem)]: On mobile, fill screen minus margins.
+      */}
+      <DropdownMenuContent 
+        className="w-[calc(100vw-2rem)] sm:w-80 p-0" 
+        align="end" 
+        forceMount
+        collisionPadding={16}
+      >
         <div className="flex items-center justify-between p-4 border-b border-zinc-100">
           <DropdownMenuLabel className="p-0 text-sm font-semibold text-zinc-900">
             Notifications

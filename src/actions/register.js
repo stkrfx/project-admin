@@ -3,9 +3,11 @@
 import bcrypt from "bcryptjs";
 import connectDB from "@/lib/db";
 import User from "@/models/User";
+import ExpertProfile from "@/models/ExpertProfile";
 import { sendOtpEmail } from "@/lib/email";
 import { z } from "zod";
-import { generateFromEmail } from "unique-username-generator"; // Import this
+import { generateFromEmail } from "unique-username-generator";
+import { otpRateLimit } from "@/lib/limiter";
 
 const registerSchema = z.object({
   name: z.string().min(2),
@@ -16,58 +18,62 @@ const registerSchema = z.object({
 export async function registerUser(values) {
   try {
     const validatedFields = registerSchema.safeParse(values);
-    if (!validatedFields.success) {
-      return { error: "Invalid fields!" };
-    }
+    if (!validatedFields.success) return { error: "Invalid fields!" };
 
     const { name, email, password } = validatedFields.data;
 
+    const { success } = await otpRateLimit.limit(email);
+    if (!success) return { error: "Too many attempts. Wait 10 minutes." };
+
     await connectDB();
 
-    const existingUser = await User.findOne({ email });
+    // CHECK FOR EXISTING *EXPERT* ACCOUNT
+    const existingUser = await User.findOne({ 
+      email: email, 
+      role: "expert" 
+    });
 
     if (existingUser && existingUser.isVerified) {
-      return { error: "Email already in use!" };
+      return { error: "An expert account with this email already exists." };
     }
 
-    // Generate 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); 
+    const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // NEW: Generate a unique username
-    const username = generateFromEmail(email, 3); // Adds 3 random digits to ensure uniqueness
+    const username = generateFromEmail(email, 3);
 
     if (existingUser && !existingUser.isVerified) {
+      // Update pending expert account
       existingUser.name = name;
       existingUser.password = hashedPassword;
       existingUser.otp = otp;
       existingUser.otpExpiry = otpExpiry;
-      // We don't update username here to keep it consistent, 
-      // or you can update it if you want fresh logic every time.
       await existingUser.save();
     } else {
-      await User.create({
+      // Create NEW Expert Account
+      const newUser = await User.create({
         name,
         email,
         password: hashedPassword,
-        image: `https://ui-avatars.com/api/?name=${name}&background=random`, // Optional: Add a default avatar
-        username, // <--- Save the generated username
+        image: `https://ui-avatars.com/api/?name=${name}&background=random`,
+        username,
         otp,
         otpExpiry,
         isVerified: false,
+        role: "expert", // <--- FORCE ROLE
+      });
+
+      // Initialize Empty Profile
+      await ExpertProfile.create({
+        user: newUser._id,
       });
     }
 
     await sendOtpEmail(email, otp);
+    return { success: "OTP sent.", email };
 
-    return { success: "OTP sent to your email.", email };
   } catch (error) {
     console.error("Registration Error:", error);
-    // Handle duplicate username edge case (rare but possible)
-    if (error.code === 11000 && error.keyPattern?.username) {
-        return { error: "Username taken, please try again." };
-    }
     return { error: "Something went wrong!" };
   }
 }

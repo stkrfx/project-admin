@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { signIn } from "next-auth/react"; // Import signIn
+import { signIn } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -28,6 +28,9 @@ import {
   InputOTPSeparator,
 } from "@/components/ui/input-otp";
 
+// Actions
+import { resendOtp } from "@/actions/resend"; // 1. Import the new action
+
 const verifySchema = z.object({
   otp: z.string().min(6, { message: "Your code must be 6 digits." }),
 });
@@ -40,6 +43,7 @@ export default function VerifyForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
 
+  // Mask email for privacy (e.g., j***@gmail.com)
   const maskedEmail = email 
     ? email.replace(/^(.{2})(.*)(@.*)$/, (_, a, b, c) => a + "*".repeat(b.length) + c) 
     : "your email";
@@ -59,15 +63,25 @@ export default function VerifyForm() {
     },
   });
 
+  // --- NEW RESEND LOGIC ---
   async function onResend() {
     if (countdown > 0) return;
+    if (!email) {
+        toast.error("Missing email address.");
+        return;
+    }
+    
     setIsLoading(true);
     try {
-        // You can keep a simple server action just for resending if needed, 
-        // or re-call the register action which handles existing users.
-        // For now, mocking the success toast:
-        toast.success("Code resent!", { description: "Check your inbox." });
-        setCountdown(60); 
+        // 2. Call the dedicated server action
+        const result = await resendOtp(email);
+
+        if (result.error) {
+            toast.error(result.error);
+        } else {
+            toast.success("Code resent!", { description: "Check your inbox." });
+            setCountdown(60); // Start 60s cooldown
+        }
     } catch (error) {
         toast.error("Failed to resend code.");
     } finally {
@@ -84,11 +98,11 @@ export default function VerifyForm() {
     setIsLoading(true);
 
     try {
-      // PREMIUM FLOW: Sign in directly using OTP
+      // Verify & Login via NextAuth
       const res = await signIn("credentials", {
-        redirect: false, // We handle redirect manually for better UX
+        redirect: false,
         email: email,
-        otp: values.otp, // Pass OTP instead of password
+        otp: values.otp,
       });
 
       if (res?.error) {
@@ -98,7 +112,6 @@ export default function VerifyForm() {
         return;
       }
 
-      // Success! User is now verified AND logged in.
       toast.success("Verified & Logged In!", {
         description: "Welcome to Mindnamo.",
       });

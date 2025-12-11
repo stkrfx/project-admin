@@ -3,7 +3,8 @@ import User from "@/models/User";
 import bcrypt from "bcryptjs";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
-import { generateFromEmail } from "unique-username-generator"; 
+import { generateFromEmail } from "unique-username-generator";
+import { authRateLimit } from "@/lib/limiter";
 
 export const authOptions = {
   providers: [
@@ -19,41 +20,56 @@ export const authOptions = {
         otp: { label: "OTP", type: "text" },
       },
       async authorize(credentials) {
-        await connectDB();
-
-        if (!credentials?.email) {
-           throw new Error("Missing email");
+        // 1. Rate Limit
+        if (credentials?.email) {
+          const { success } = await authRateLimit.limit(credentials.email);
+          if (!success) throw new Error("Too many login attempts. Try again later.");
         }
 
-        // Select password explicitly because it's hidden by default in the model
-        const user = await User.findOne({ email: credentials.email }).select("+password");
+        await connectDB();
+        
+        // 2. FIND EXPERT ACCOUNT
+        // We strictly filter by role="expert" to prevent logging into a "User" account
+        const user = await User.findOne({ 
+          email: credentials.email, 
+          role: "expert" 
+        }).select("+password");
 
         if (!user) {
-          throw new Error("User not found");
+          throw new Error("No expert account found. Please register.");
         }
 
-        // --- SCENARIO 1: OTP LOGIN (Verification & Auto-Login Flow) ---
+        // 3. BAN CHECK
+        if (user.isBanned) {
+          throw new Error("This account has been suspended.");
+        }
+
+        // --- OTP LOGIN FLOW (Registration / Verify) ---
         if (credentials.otp) {
           if (user.otp !== credentials.otp) throw new Error("Invalid OTP");
           if (user.otpExpiry < new Date()) throw new Error("OTP has expired");
 
-          // Verify user and clear OTP fields
           user.isVerified = true;
           user.otp = undefined;
           user.otpExpiry = undefined;
           await user.save();
 
-          return { id: user._id.toString(), name: user.name, email: user.email, image: user.image };
+          return user;
         }
 
-        // --- SCENARIO 2: PASSWORD LOGIN (Standard Flow) ---
+        // --- PASSWORD LOGIN FLOW ---
         if (credentials.password) {
+          // If user has no password (Google only), prompt them to reset/set one
+          if (!user.password) {
+             throw new Error("Please login with Google or reset your password.");
+          }
+
           if (!user.isVerified) throw new Error("Please verify your email first.");
-
+          
           const isMatch = await bcrypt.compare(credentials.password, user.password);
-          if (!isMatch) throw new Error("Invalid email or password");
+          if (!isMatch) throw new Error("Invalid credentials");
 
-          return { id: user._id.toString(), name: user.name, email: user.email, image: user.image };
+          return user;
         }
 
         throw new Error("Invalid credentials");
@@ -61,104 +77,110 @@ export const authOptions = {
     }),
   ],
   callbacks: {
-    // 1. SIGN IN CALLBACK: The Smart Sync & Auto-Registration
+    // 1. SIGN IN CALLBACK (The Linking Logic)
     async signIn({ user, account, profile }) {
       if (account.provider === "google") {
         try {
           await connectDB();
           
-          const existingUser = await User.findOne({ email: user.email });
+          // Find existing EXPERT account
+          const existingUser = await User.findOne({ 
+            email: user.email, 
+            role: "expert" 
+          });
 
           if (existingUser) {
-            // A) User exists: Sync their image if it's missing or generic (ui-avatars)
-            const isGenericImage = !existingUser.image || existingUser.image.includes("ui-avatars.com");
-            
-            if (isGenericImage && profile.picture) {
-              existingUser.image = profile.picture;
+            if (existingUser.isBanned) return false;
+
+            // --- LINKING LOGIC ---
+            // If they didn't have a Google ID before, save it now.
+            // This merges "Password Account" with "Google Login"
+            if (!existingUser.googleId) {
+                existingUser.googleId = profile.sub;
+            }
+
+            // Sync Image if generic
+            const isGeneric = !existingUser.image || existingUser.image.includes("ui-avatars.com");
+            if (isGeneric && profile.picture) {
+                existingUser.image = profile.picture;
             }
             
-            // Google accounts are inherently verified
-            if (!existingUser.isVerified) {
-              existingUser.isVerified = true;
-            }
+            // Ensure verified
+            if (!existingUser.isVerified) existingUser.isVerified = true;
             
             await existingUser.save();
-            return true; // Allow login
+            return true;
           } 
           
-          // B) User DOES NOT exist: Auto-Register them
+          // CREATE NEW EXPERT (Google First)
           else {
-            const username = generateFromEmail(user.email, 3); // Create unique username
-            
+            const username = generateFromEmail(user.email, 3);
             await User.create({
               name: user.name,
               email: user.email,
-              image: user.image, // Use Google image
+              image: user.image,
               username: username,
-              isVerified: true, // Google users are always verified
+              isVerified: true,
+              role: "expert", // Force Expert Role
               provider: "google",
+              googleId: profile.sub,
             });
-            
-            return true; // Allow login
+            return true;
           }
         } catch (error) {
           console.error("Google Sign-In Error:", error);
-          return false; // Deny login on database error
+          return false;
         }
       }
-      return true; // Allow other providers (Credentials) to pass
+      return true;
     },
 
-    // 2. JWT CALLBACK: Persist DB ID & Revalidate Session
+    // 2. JWT CALLBACK
     async jwt({ token, user, trigger, session }) {
-      // A) Initial Sign In
       if (user) {
         token.id = user.id;
         token.picture = user.image;
+        token.role = user.role;
       }
       
-      // B) Manual Client-Side Update
       if (trigger === "update" && session) {
         token.name = session.user.name;
         token.email = session.user.email;
         token.picture = session.user.image;
         return token;
       }
-      
-      // C) SUBSEQUENT VISITS (Session Sync)
-      // This ensures that if the DB changes (e.g. image update), the session updates automatically
-      // on the next page load, keeping multiple devices in sync.
+
+      // Session Revalidation
       if (token.email) {
         await connectDB();
-        const dbUser = await User.findOne({ email: token.email });
+        const dbUser = await User.findOne({ 
+            email: token.email, 
+            role: "expert" 
+        });
         
         if (dbUser) {
-          token.id = dbUser._id.toString();
-          token.name = dbUser.name;
-          token.email = dbUser.email;
-          token.picture = dbUser.image; // Updates the image in the cookie
+           if (dbUser.isBanned) return null; // Log out banned users
+           token.id = dbUser._id.toString();
+           token.picture = dbUser.image;
+           token.role = dbUser.role;
         }
       }
-      
       return token;
     },
 
-    // 3. SESSION CALLBACK: Pass data to the frontend
+    // 3. SESSION CALLBACK
     async session({ session, token }) {
       if (token) {
         session.user.id = token.id;
-        session.user.name = token.name;
-        session.user.email = token.email;
         session.user.image = token.picture;
+        session.user.role = token.role;
+      } else {
+        return null;
       }
       return session;
     },
   },
-  session: {
-    strategy: "jwt",
-  },
+  session: { strategy: "jwt" },
   secret: process.env.NEXTAUTH_SECRET,
-  pages: {
-    signIn: "/login",
-  },
+  pages: { signIn: "/login" },
 };

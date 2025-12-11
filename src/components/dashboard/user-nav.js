@@ -12,7 +12,8 @@ import {
   AvatarImage,
 } from "@/components/ui/avatar";
 import {
-  Button } from "@/components/ui/button";
+  Button
+} from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +24,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { UserAvatar } from "@/components/ui/user-avatar";
 
 export function UserNav({ user }) {
   const router = useRouter();
@@ -32,12 +34,11 @@ export function UserNav({ user }) {
     await signOut({ callbackUrl: "/login" });
   };
 
-  // --- 1. KEYBOARD SHORTCUTS LOGIC ---
+  // --- KEYBOARD SHORTCUTS LOGIC ---
   useEffect(() => {
     const handleKeyDown = (event) => {
       // Check for Cmd (Mac) or Ctrl (Windows)
       const modifier = event.metaKey || event.ctrlKey;
-
       if (!modifier) return;
 
       switch (event.key.toLowerCase()) {
@@ -68,14 +69,12 @@ export function UserNav({ user }) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [router]);
 
-  // --- 2. AVATAR PERFORMANCE FIX ---
-  // Generate initials securely
+  // Generate initials
   const initials = user?.name
     ? user.name.split(" ").map((n) => n[0]).join("").substring(0, 2).toUpperCase()
     : "U";
 
-  // FIX: If the image is from 'ui-avatars', ignore it. 
-  // We prefer our instant CSS fallback over a slow-loading external image.
+  // Ignore ui-avatars images in favor of CSS fallback
   const isGenericImage = user?.image?.includes("ui-avatars.com");
   const displayImage = isGenericImage ? null : user?.image;
 
@@ -83,15 +82,10 @@ export function UserNav({ user }) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-10 w-10 rounded-full focus-visible:ring-0">
-          <Avatar className="h-10 w-10 border border-zinc-200 shadow-sm transition-transform hover:scale-105">
-            <AvatarImage src={displayImage} alt={user?.name} className="object-cover" />
-            <AvatarFallback className="bg-zinc-900 text-white font-medium">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar user={user} className="h-10 w-10 border border-zinc-200 shadow-sm" />
         </Button>
       </DropdownMenuTrigger>
-      
+
       <DropdownMenuContent className="w-56" align="end" forceMount>
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
@@ -101,44 +95,48 @@ export function UserNav({ user }) {
             </p>
           </div>
         </DropdownMenuLabel>
-        
+
         <DropdownMenuSeparator />
-        
+
         <DropdownMenuGroup>
-          <DropdownMenuItem 
+          <DropdownMenuItem
             className="cursor-pointer"
             onClick={() => router.push("/profile")}
           >
             <User className="mr-2 h-4 w-4" />
             <span>Profile</span>
-            <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
+            {/* HIDDEN ON MOBILE */}
+            <DropdownMenuShortcut className="hidden md:inline-flex">⇧⌘P</DropdownMenuShortcut>
           </DropdownMenuItem>
-          
-          <DropdownMenuItem 
+
+          <DropdownMenuItem
             className="cursor-pointer"
             onClick={() => router.push("/revenue")}
           >
             <CreditCard className="mr-2 h-4 w-4" />
             <span>Billing</span>
-            <DropdownMenuShortcut>⌘B</DropdownMenuShortcut>
+            {/* HIDDEN ON MOBILE */}
+            <DropdownMenuShortcut className="hidden md:inline-flex">⌘B</DropdownMenuShortcut>
           </DropdownMenuItem>
-          
-          <DropdownMenuItem 
+
+          <DropdownMenuItem
             className="cursor-pointer"
             onClick={() => router.push("/settings")}
           >
             <Settings className="mr-2 h-4 w-4" />
             <span>Settings</span>
-            <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
+            {/* HIDDEN ON MOBILE */}
+            <DropdownMenuShortcut className="hidden md:inline-flex">⌘S</DropdownMenuShortcut>
           </DropdownMenuItem>
         </DropdownMenuGroup>
-        
+
         <DropdownMenuSeparator />
-        
+
         <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600 cursor-pointer focus:bg-red-50">
           <LogOut className="mr-2 h-4 w-4" />
           <span>Log out</span>
-          <DropdownMenuShortcut>⇧⌘Q</DropdownMenuShortcut>
+          {/* HIDDEN ON MOBILE */}
+          <DropdownMenuShortcut className="hidden md:inline-flex">⇧⌘Q</DropdownMenuShortcut>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
