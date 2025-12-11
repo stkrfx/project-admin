@@ -40,12 +40,14 @@ export default function VerifyForm() {
   const email = searchParams.get("email");
 
   const [isLoading, setIsLoading] = useState(false);
+  // [!code ++] Cooldown State (Visual Feedback)
   const [countdown, setCountdown] = useState(0);
 
   const maskedEmail = email 
     ? email.replace(/^(.{2})(.*)(@.*)$/, (_, a, b, c) => a + "*".repeat(b.length) + c) 
     : "your email";
 
+  // [!code ++] Cooldown Timer Logic
   useEffect(() => {
     let timer;
     if (countdown > 0) {
@@ -66,15 +68,17 @@ export default function VerifyForm() {
         return;
     }
     
-    // Set a small local load state for the resend button text
     setIsLoading(true); 
     try {
         const result = await resendOtp(email);
 
         if (result.error) {
             toast.error("Resend Failed", { description: result.error });
+            // Optional: Set a short cooldown on error to prevent spamming
+            // setCountdown(10); 
         } else {
             toast.success("Code resent!", { description: "Check your inbox." });
+            // [!code ++] Trigger 60s cooldown on success
             setCountdown(60); 
         }
     } catch (error) {
@@ -94,7 +98,6 @@ export default function VerifyForm() {
     setIsLoading(true);
 
     try {
-      // Login via NextAuth (calls auth.js authorize())
       const res = await signIn("credentials", {
         redirect: false,
         email: email,
@@ -196,12 +199,14 @@ export default function VerifyForm() {
         <button
           type="button"
           onClick={onResend}
+          // [!code ++] Disable button during cooldown
           disabled={isLoading || countdown > 0}
           className={cn(
             "font-semibold text-zinc-900 hover:underline hover:text-zinc-700 transition-colors",
             (isLoading || countdown > 0) && "opacity-50 cursor-not-allowed no-underline"
           )}
         >
+          {/* [!code ++] Visual Feedback: Show remaining seconds */}
           {countdown > 0 ? `Resend in ${countdown}s` : "Resend"}
         </button>
       </div>

@@ -24,8 +24,9 @@ export const authOptions = {
       async authorize(credentials) {
         if (!credentials?.email) throw new Error("Email required.");
 
-        // 🔥 Normalize email ALWAYS
-        const email = credentials.email.toLowerCase();
+        // 🔥 Normalize email ALWAYS (Trim & Lowercase)
+        // [!code change] Added .trim() to prevent whitespace issues
+        const email = credentials.email.trim().toLowerCase();
 
         // 1. RATE LIMIT
         const { success } = await authRateLimit.limit(email);
@@ -94,7 +95,8 @@ export const authOptions = {
         try {
           await connectDB();
 
-          const normalizedEmail = (user.email || "").toLowerCase();
+          // [!code change] Added .trim()
+          const normalizedEmail = (user.email || "").trim().toLowerCase();
 
           let existingUser = await User.findOne({
             email: normalizedEmail,
@@ -163,6 +165,15 @@ export const authOptions = {
 
     async session({ session, token }) {
       if (!token) return session;
+
+      // FIX: Session Persistence (Ban Evasion)
+      await connectDB();
+      const currentUser = await User.findById(token.id).select("isBanned isVerified");
+
+      if (!currentUser || currentUser.isBanned || !currentUser.isVerified) {
+        return null;
+      }
+
       session.user.id = token.id;
       session.user.image = token.picture;
       session.user.role = token.role;

@@ -3,14 +3,22 @@
 import connectDB from "@/lib/db";
 import User from "@/models/User";
 import bcrypt from "bcryptjs";
+import { authRateLimit } from "@/lib/limiter";
 
 export async function verifyOtp(email, otp) {
   try {
-    // Normalize email ALWAYS
-    const normalizedEmail = email?.toLowerCase();
+    // Normalize email ALWAYS (Trim & Lowercase)
+    // [!code change] Added .trim()
+    const normalizedEmail = email?.trim().toLowerCase();
 
     if (!normalizedEmail || !otp) {
       return { error: "Missing required fields." };
+    }
+
+    // Rate Limit: Prevent brute-forcing the OTP
+    const { success } = await authRateLimit.limit(normalizedEmail);
+    if (!success) {
+      return { error: "Too many attempts. Please try again in 15 minutes." };
     }
 
     await connectDB();

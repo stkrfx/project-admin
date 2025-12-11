@@ -23,10 +23,11 @@ export async function registerUser(values) {
 
     let { name, email, password } = validatedFields.data;
 
-    // 🔥 Normalize email ALWAYS
-    const normalizedEmail = email.toLowerCase();
+    // 🔥 Normalize email ALWAYS (Trim & Lowercase)
+    // [!code change] Added .trim()
+    const normalizedEmail = email.trim().toLowerCase();
 
-    // Rate limit should use normalizedEmail
+    // Rate limit by normalized email
     const { success } = await otpRateLimit.limit(normalizedEmail);
     if (!success) return { error: "Too many attempts. Wait 10 minutes." };
 
@@ -72,7 +73,7 @@ export async function registerUser(values) {
 
       userToUpdate = await User.create({
         name,
-        email: normalizedEmail, // 🔥 FIXED
+        email: normalizedEmail,
         password: hashedPassword,
         image: `https://ui-avatars.com/api/?name=${name}&background=random`,
         username,

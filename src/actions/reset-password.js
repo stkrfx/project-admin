@@ -5,6 +5,8 @@ import User from "@/models/User";
 import { z } from "zod";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
+import { authRateLimit } from "@/lib/limiter"; // [!code ++]
+import { headers } from "next/headers"; // [!code ++]
 
 const resetSchema = z.object({
   token: z.string().min(1, "Token is missing"),
@@ -17,6 +19,13 @@ export async function resetPassword(values) {
     if (!validated.success) return { error: "Invalid data." };
 
     const { token, password } = validated.data;
+
+    // [!code ++] Rate Limit: Prevent brute-force & spam (IP-based)
+    const ip = (await headers()).get("x-forwarded-for") || "127.0.0.1";
+    const { success } = await authRateLimit.limit(ip);
+    if (!success) {
+      return { error: "Too many attempts. Please try again in 15 minutes." };
+    }
 
     // 1. Hash the token to match DB storage
     const resetTokenHash = crypto
