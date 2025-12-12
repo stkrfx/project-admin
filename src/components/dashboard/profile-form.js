@@ -74,8 +74,6 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
     const live = initialData || {};
     const draft = initialData.draft || {};
 
-    // Fix: Use validFrom instead of checking array length
-    // If validFrom exists, the user has submitted a new schedule (even if empty)
     const hasPendingUpdate = !!live.futureAvailability?.validFrom;
 
     const pendingSchedule = hasPendingUpdate
@@ -110,11 +108,9 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
       languages: draft.languages || live.languages || [],
       documents: draft.documents || live.documents || [],
 
-      // Prefer FUTURE schedule → draft → live
       availability:
         pendingSchedule || draft.availability || live.availability || [],
 
-      // Prefer FUTURE leaves → live
       leaves: pendingLeaves || live.leaves || [],
     };
   }, [initialData]);
@@ -128,7 +124,6 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
   const [userUsername, setUserUsername] = useState(user.username || "");
   const [userImage, setUserImage] = useState(user.image || "");
 
-  // NEW: Fully controlled
   const [bio, setBio] = useState(expert.bio || "");
   const [specialization, setSpecialization] = useState(
     expert.specialization || ""
@@ -234,36 +229,6 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
   const hasError = (tab) =>
     Object.keys(errors).some((field) => FIELD_TO_TAB[field] === tab);
 
-  // ----------------------------
-  // PROFILE STRENGTH METER
-  // ----------------------------
-  const completionPercentage = useMemo(() => {
-    let score = 0;
-    if (userImage) score += 10;
-    if (userName && userUsername) score += 10;
-    if (bio.length > 50) score += 10;
-    if (workHistory.length > 0) score += 10;
-    if (education.length > 0) score += 5;
-    if (services.length > 0) score += 20;
-    if (availability.length > 0) score += 10;
-    if (documents.length > 0) score += 10;
-    if (location) score += 10;
-    if (socialLinks.linkedin) score += 5;
-    return Math.min(score, 100);
-  }, [
-    userImage,
-    userName,
-    userUsername,
-    bio,
-    workHistory,
-    education,
-    services,
-    availability,
-    documents,
-    location,
-    socialLinks,
-  ]);
-
   return (
     <form onSubmit={onSubmit}>
       <Tabs value={currentTab} onValueChange={handleTabChange} className="w-full pb-32">
@@ -319,6 +284,7 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
               setGender={setGender}
               setLocation={setLocation}
               setSocialLinks={setSocialLinks}
+              errors={errors} // FIX: Pass errors
             />
           </TabsContent>
 
@@ -335,11 +301,16 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
               setBio={setBio}
               specialization={specialization}
               setSpecialization={setSpecialization}
+              errors={errors} // FIX: Pass errors
             />
           </TabsContent>
 
           <TabsContent value="services">
-            <ServicesSection services={services} setServices={setServices} />
+            <ServicesSection 
+              services={services} 
+              setServices={setServices} 
+              errors={errors} // FIX: Pass errors
+            />
           </TabsContent>
 
           <TabsContent value="availability">
@@ -348,15 +319,25 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
               setAvailability={setAvailability}
               leaves={leaves}
               setLeaves={setLeaves}
+              errors={errors} // FIX: Pass errors
             />
           </TabsContent>
 
           <TabsContent value="documents">
-            <DocumentsSection documents={documents} setDocuments={setDocuments} />
+            <DocumentsSection 
+              documents={documents} 
+              setDocuments={setDocuments} 
+              errors={errors} // FIX: Pass errors
+            />
           </TabsContent>
 
           <TabsContent value="settings">
-            <SettingsSection expert={expert} languages={languages} setLanguages={setLanguages} />
+            <SettingsSection 
+              expert={expert} 
+              languages={languages} 
+              setLanguages={setLanguages} 
+              errors={errors} // FIX: Pass errors
+            />
           </TabsContent>
         </div>
       </Tabs>

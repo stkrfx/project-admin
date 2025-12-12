@@ -20,7 +20,7 @@ const DOC_TYPES = [
   "Other"
 ];
 
-export function DocumentsSection({ documents, setDocuments }) {
+export function DocumentsSection({ documents, setDocuments, errors = {} }) {
   const [docName, setDocName] = useState("");
   const [docCategory, setDocCategory] = useState("");
   const [isUploading, setIsUploading] = useState(false);
@@ -37,7 +37,15 @@ export function DocumentsSection({ documents, setDocuments }) {
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       
-      <Card className="border-zinc-200 shadow-sm bg-white overflow-hidden">
+      {/* GLOBAL ERROR FOR DOCUMENTS */}
+      {errors.documents && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2 text-sm font-medium animate-pulse">
+            <AlertCircle className="h-4 w-4" />
+            {typeof errors.documents === 'string' ? errors.documents : "Please provide the required documents."}
+        </div>
+      )}
+
+      <Card className={cn("border-zinc-200 shadow-sm bg-white overflow-hidden", errors.documents && "border-red-300 ring-1 ring-red-100")}>
         
         {/* HEADER */}
         <CardHeader className="border-b border-zinc-100 bg-zinc-50/30 pb-6 p-6 md:p-8">

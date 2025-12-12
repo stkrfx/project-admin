@@ -61,15 +61,18 @@ export function SettingsSection({ expert, languages, setLanguages, errors = {} }
 
                 {/* Timezone */}
                 <div className="space-y-3">
-                    <Label className="text-xs font-bold text-zinc-500 uppercase tracking-wide flex items-center gap-2">
-                        <Clock className="h-3.5 w-3.5" /> Timezone
-                    </Label>
+                    <div className="flex justify-between">
+                        <Label className={cn("text-xs font-bold uppercase tracking-wide flex items-center gap-2", errors.timezone ? "text-red-600" : "text-zinc-500")}>
+                            <Clock className="h-3.5 w-3.5" /> Timezone
+                        </Label>
+                        {errors.timezone && <span className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="h-3 w-3"/> {errors.timezone[0]}</span>}
+                    </div>
                     
                     {/* Hidden Input for Form Submission */}
                     <input type="hidden" name="timezone" value={timezone} />
                     
                     <Select value={timezone} onValueChange={setTimezone}>
-                        <SelectTrigger className="h-11 bg-white border-zinc-200 focus:ring-indigo-500">
+                        <SelectTrigger className={cn("h-11 bg-white border-zinc-200 focus:ring-indigo-500", errors.timezone && "border-red-300 ring-red-200")}>
                             <SelectValue placeholder="Select your timezone" />
                         </SelectTrigger>
                         <SelectContent className="max-h-[300px]">
@@ -87,7 +90,7 @@ export function SettingsSection({ expert, languages, setLanguages, errors = {} }
         </CardContent>
       </Card>
 
-      {/* 2. DANGER ZONE (Unchanged) */}
+      {/* 2. DANGER ZONE */}
       <Card className="border-red-100 shadow-sm bg-red-50/10 overflow-hidden">
         <CardHeader className="border-b border-red-100 bg-red-50/30 pb-6">
             <div className="flex items-center gap-3">

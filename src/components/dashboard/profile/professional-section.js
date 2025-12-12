@@ -10,7 +10,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { TagInput } from "@/components/ui/tag-input"; 
 import { cn } from "@/lib/utils";
 
-export function ProfessionalSection({ expert, tags = [], setTags, workHistory = [], setWorkHistory, education = [], setEducation, errors = {} }) {
+// 1. Accept bio/specialization props from parent
+export function ProfessionalSection({ 
+    expert, 
+    tags = [], setTags, 
+    workHistory = [], setWorkHistory, 
+    education = [], setEducation, 
+    bio, setBio, 
+    specialization, setSpecialization, 
+    errors = {} 
+}) {
   
   // --- HELPERS ---
   const addJob = () => setWorkHistory([...workHistory, { company: "", role: "", startDate: "", endDate: "", current: false }]);
@@ -49,7 +58,7 @@ export function ProfessionalSection({ expert, tags = [], setTags, workHistory = 
         </CardHeader>
         <CardContent className="p-6 md:p-8 space-y-6">
             
-            {/* Headline */}
+            {/* Headline - FIXED: Changed to Controlled Input */}
             <div className="space-y-2">
                 <div className="flex justify-between">
                     <Label className={cn("text-xs font-bold uppercase tracking-wide", errors.specialization ? "text-red-600" : "text-zinc-500")}>Headline</Label>
@@ -57,13 +66,14 @@ export function ProfessionalSection({ expert, tags = [], setTags, workHistory = 
                 </div>
                 <Input 
                     name="specialization" 
-                    defaultValue={expert?.specialization || ""} 
+                    value={specialization || ""} 
+                    onChange={(e) => setSpecialization(e.target.value)}
                     placeholder="e.g. Senior Clinical Psychologist & CBT Specialist" 
                     className={cn("h-12 text-lg font-medium bg-white", errors.specialization && "border-red-300 focus-visible:ring-red-200")} 
                 />
             </div>
 
-            {/* Bio */}
+            {/* Bio - FIXED: Changed to Controlled Textarea */}
             <div className="space-y-2">
                 <div className="flex justify-between items-center">
                     <Label className={cn("text-xs font-bold uppercase tracking-wide", errors.bio ? "text-red-600" : "text-zinc-500")}>About You</Label>
@@ -71,7 +81,8 @@ export function ProfessionalSection({ expert, tags = [], setTags, workHistory = 
                 </div>
                 <Textarea 
                     name="bio" 
-                    defaultValue={expert?.bio || ""} 
+                    value={bio || ""} 
+                    onChange={(e) => setBio(e.target.value)}
                     placeholder="Share your professional journey, expertise, and how you help clients..." 
                     className={cn("min-h-[160px] text-base leading-relaxed resize-y p-4 bg-white", errors.bio && "border-red-300 focus-visible:ring-red-200")} 
                 />

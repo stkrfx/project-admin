@@ -4,7 +4,7 @@ import { Info, CalendarClock, CalendarDays, AlertCircle } from "lucide-react";
 import { WeeklySchedule } from "./availability/WeeklySchedule";
 import { DateOverrides } from "./availability/DateOverrides";
 
-export function AvailabilitySection({ availability, setAvailability, leaves, setLeaves }) {
+export function AvailabilitySection({ availability, setAvailability, leaves, setLeaves, errors = {} }) {
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       
@@ -28,6 +28,14 @@ export function AvailabilitySection({ availability, setAvailability, leaves, set
         }
         .date-input-wrapper input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
       `}</style>
+
+      {/* GLOBAL ERROR FOR AVAILABILITY */}
+      {(errors.availability || errors.leaves) && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center gap-2 text-sm font-medium animate-pulse">
+            <AlertCircle className="h-4 w-4" />
+            {errors.availability || errors.leaves || "Please check your schedule settings."}
+        </div>
+      )}
 
       {/* --- IMPROVED INFO SECTION --- */}
       <div className="bg-white border border-zinc-200 rounded-xl p-6 shadow-sm">

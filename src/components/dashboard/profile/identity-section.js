@@ -7,13 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UploadButton } from "@/components/upload-button";
-import { User, Wand2, AtSign, MapPin, Camera, Sparkles, Globe, Mail, Linkedin, Twitter, Link as LinkIcon, AlertCircle } from "lucide-react";
+import { User, Wand2, AtSign, MapPin, Camera, Sparkles, Globe, Mail, Linkedin, Twitter, Link as LinkIcon, AlertCircle, Loader2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export function IdentitySection({ user, setUserName, setUserUsername, setUserImage, expert, setGender, setLocation, socialLinks, setSocialLinks, errors = {} }) {
     const [isHovered, setIsHovered] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
 
     const generateUsername = () => {
         if (!user.name) return toast.error("Please enter your name first.");
@@ -54,24 +55,42 @@ export function IdentitySection({ user, setUserName, setUserUsername, setUserIma
                                 </Avatar>
 
                                 {/* Overlay */}
-                                <div className={cn("absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-full transition-opacity duration-200 border-[6px] border-transparent", isHovered ? "opacity-100" : "opacity-0")}>
-                                    <Camera className="h-6 w-6 text-white mb-1" />
-                                    <span className="text-[10px] text-white font-bold uppercase tracking-wider">Change</span>
-                                    <div className="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
-                                        <UploadButton
-                                            endpoint="profilePicture" // <--- FIXED: Must match core.js router key
-                                            onClientUploadComplete={(res) => {
-                                                if (res?.[0]) {
-                                                    setUserImage(res[0].url);
-                                                    toast.success("Profile photo updated");
-                                                }
-                                            }}
-                                            appearance={{
-                                                button: { width: '100%', height: '100%' },
-                                                container: { width: '100%', height: '100%' }
-                                            }}
-                                        />
-                                    </div>
+                                <div className={cn("absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-full transition-opacity duration-200 border-[6px] border-transparent", (isHovered || isUploading) ? "opacity-100" : "opacity-0")}>
+                                    
+                                    {isUploading ? (
+                                        <Loader2 className="h-8 w-8 text-white animate-spin" />
+                                    ) : (
+                                        <>
+                                            <Camera className="h-6 w-6 text-white mb-1" />
+                                            <span className="text-[10px] text-white font-bold uppercase tracking-wider">Change</span>
+                                            
+                                            {/* Upload Button Container */}
+                                            <div className="absolute inset-0 w-full h-full opacity-0 cursor-pointer overflow-hidden rounded-full">
+                                                <UploadButton
+                                                    endpoint="profilePicture"
+                                                    onUploadBegin={() => {
+                                                        setIsUploading(true);
+                                                    }}
+                                                    onClientUploadComplete={(res) => {
+                                                        setIsUploading(false);
+                                                        if (res?.[0]) {
+                                                            setUserImage(res[0].url);
+                                                            toast.success("Profile photo updated");
+                                                        }
+                                                    }}
+                                                    onUploadError={(error) => {
+                                                        setIsUploading(false);
+                                                        toast.error(`Upload failed: ${error.message}`);
+                                                    }}
+                                                    appearance={{
+                                                        button: { width: '100%', height: '100%', cursor: 'pointer' },
+                                                        container: { width: '100%', height: '100%' },
+                                                        allowedContent: { display: 'none' }
+                                                    }}
+                                                />
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
                             </div>
 
@@ -156,14 +175,17 @@ export function IdentitySection({ user, setUserName, setUserUsername, setUserIma
 
                             {/* Location Input */}
                             <div className="space-y-2">
-                                <Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Location</Label>
+                                <div className="flex justify-between">
+                                    <Label className={cn("text-xs font-semibold uppercase tracking-wider", errors.location ? "text-red-600" : "text-zinc-500")}>Location</Label>
+                                    {errors.location && <span className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> {errors.location[0]}</span>}
+                                </div>
                                 <div className="relative">
                                     <MapPin className="absolute left-3 top-3.5 h-4 w-4 text-zinc-400" />
                                     <Input
                                         value={expert?.location || ""}
                                         onChange={(e) => setLocation(e.target.value)}
                                         placeholder="City, Country"
-                                        className="pl-9 h-11 bg-white"
+                                        className={cn("pl-9 h-11 bg-white", errors.location && "border-red-300 focus-visible:ring-red-200")}
                                     />
                                 </div>
                             </div>
@@ -171,9 +193,14 @@ export function IdentitySection({ user, setUserName, setUserUsername, setUserIma
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-2">
-                                <Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Gender</Label>
+                                <div className="flex justify-between">
+                                    <Label className={cn("text-xs font-semibold uppercase tracking-wider", errors.gender ? "text-red-600" : "text-zinc-500")}>Gender</Label>
+                                    {errors.gender && <span className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> {errors.gender[0]}</span>}
+                                </div>
                                 <Select value={expert?.gender || ""} onValueChange={setGender}>
-                                    <SelectTrigger className="h-11 bg-white"><SelectValue placeholder="Select gender..." /></SelectTrigger>
+                                    <SelectTrigger className={cn("h-11 bg-white", errors.gender && "border-red-300 ring-red-200")}>
+                                        <SelectValue placeholder="Select gender..." />
+                                    </SelectTrigger>
                                     <SelectContent><SelectItem value="Male">Male</SelectItem><SelectItem value="Female">Female</SelectItem><SelectItem value="Non-Binary">Non-Binary</SelectItem><SelectItem value="Prefer not to say">Prefer not to say</SelectItem></SelectContent>
                                 </Select>
                             </div>
@@ -182,7 +209,7 @@ export function IdentitySection({ user, setUserName, setUserUsername, setUserIma
                 </Card>
 
                 {/* 2. Social Links */}
-                <Card className="border-zinc-200 shadow-sm">
+                <Card className={cn("border-zinc-200 shadow-sm transition-all", (errors.linkedin || errors.twitter || errors.website) && "border-red-500 ring-1 ring-red-100")}>
                     <CardHeader className="border-b border-zinc-100 bg-zinc-50/30 pb-6">
                         <div className="flex items-center gap-2">
                             <div className="h-8 w-8 rounded-lg bg-blue-50 flex items-center justify-center"><Globe className="h-4 w-4 text-blue-600" /></div>
@@ -191,25 +218,55 @@ export function IdentitySection({ user, setUserName, setUserUsername, setUserIma
                     </CardHeader>
                     <CardContent className="p-6 md:p-8 space-y-6">
                         <div className="grid grid-cols-1 gap-6">
+                            
+                            {/* LinkedIn */}
                             <div className="space-y-2">
-                                <Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">LinkedIn URL</Label>
+                                <div className="flex justify-between">
+                                    <Label className={cn("text-xs font-semibold uppercase tracking-wider", errors.linkedin ? "text-red-600" : "text-zinc-500")}>LinkedIn URL</Label>
+                                    {errors.linkedin && <span className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> {errors.linkedin[0]}</span>}
+                                </div>
                                 <div className="relative">
                                     <Linkedin className="absolute left-3 top-3.5 h-4 w-4 text-zinc-400" />
-                                    <Input value={socialLinks?.linkedin || ""} onChange={(e) => updateSocial("linkedin", e.target.value)} placeholder="https://linkedin.com/in/..." className="pl-9 h-11 bg-white" />
+                                    <Input 
+                                        value={socialLinks?.linkedin || ""} 
+                                        onChange={(e) => updateSocial("linkedin", e.target.value)} 
+                                        placeholder="https://linkedin.com/in/..." 
+                                        className={cn("pl-9 h-11 bg-white", errors.linkedin && "border-red-300 focus-visible:ring-red-200")} 
+                                    />
                                 </div>
                             </div>
+
+                            {/* Twitter */}
                             <div className="space-y-2">
-                                <Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Twitter / X URL</Label>
+                                <div className="flex justify-between">
+                                    <Label className={cn("text-xs font-semibold uppercase tracking-wider", errors.twitter ? "text-red-600" : "text-zinc-500")}>Twitter / X URL</Label>
+                                    {errors.twitter && <span className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> {errors.twitter[0]}</span>}
+                                </div>
                                 <div className="relative">
                                     <Twitter className="absolute left-3 top-3.5 h-4 w-4 text-zinc-400" />
-                                    <Input value={socialLinks?.twitter || ""} onChange={(e) => updateSocial("twitter", e.target.value)} placeholder="https://twitter.com/..." className="pl-9 h-11 bg-white" />
+                                    <Input 
+                                        value={socialLinks?.twitter || ""} 
+                                        onChange={(e) => updateSocial("twitter", e.target.value)} 
+                                        placeholder="https://twitter.com/..." 
+                                        className={cn("pl-9 h-11 bg-white", errors.twitter && "border-red-300 focus-visible:ring-red-200")} 
+                                    />
                                 </div>
                             </div>
+
+                            {/* Website */}
                             <div className="space-y-2">
-                                <Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Personal Website</Label>
+                                <div className="flex justify-between">
+                                    <Label className={cn("text-xs font-semibold uppercase tracking-wider", errors.website ? "text-red-600" : "text-zinc-500")}>Personal Website</Label>
+                                    {errors.website && <span className="text-xs text-red-600 flex items-center gap-1"><AlertCircle className="h-3 w-3" /> {errors.website[0]}</span>}
+                                </div>
                                 <div className="relative">
                                     <LinkIcon className="absolute left-3 top-3.5 h-4 w-4 text-zinc-400" />
-                                    <Input value={socialLinks?.website || ""} onChange={(e) => updateSocial("website", e.target.value)} placeholder="https://yourwebsite.com" className="pl-9 h-11 bg-white" />
+                                    <Input 
+                                        value={socialLinks?.website || ""} 
+                                        onChange={(e) => updateSocial("website", e.target.value)} 
+                                        placeholder="https://yourwebsite.com" 
+                                        className={cn("pl-9 h-11 bg-white", errors.website && "border-red-300 focus-visible:ring-red-200")} 
+                                    />
                                 </div>
                             </div>
                         </div>

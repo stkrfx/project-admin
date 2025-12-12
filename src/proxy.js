@@ -17,15 +17,6 @@ const ratelimit = new Ratelimit({
 export default async function middleware(req) {
   const { pathname } = req.nextUrl;
 
-  /* -------------------------------------------------------------
-   * ⭐ FIXED: SECURE REAL IP DETECTION (prevents spoofing)
-   *
-   * Priority:
-   * 1. req.ip               → trusted by Vercel/Next.js runtime
-   * 2. x-real-ip            → set by Nginx / Cloudflare / proxies
-   * 3. x-forwarded-for      → fallback, first IP only
-   * 4. localhost fallback
-   * ------------------------------------------------------------- */
   const ip =
     req.ip ||
     req.headers.get("x-real-ip") ||
@@ -53,22 +44,28 @@ export default async function middleware(req) {
   }
 
   /* -------------------------------------------------------------
-   * 2. PUBLIC ROUTES (NO AUTH REQUIRED)
+   * 2. DEFINE ROUTE CATEGORIES
    * ------------------------------------------------------------- */
-  const publicRoutes = [
+  
+  // A: Auth Routes -> Only for guests. Redirect to / if logged in.
+  const authRoutes = [
     "/login",
     "/register",
     "/verify-email",
     "/forgot-password",
     "/reset-password",
-    "/api/public",
-    "/api/webhook",
-    "/api/uploadthing",
   ];
 
-  const isPublicRoute = publicRoutes.some((route) =>
-    pathname.startsWith(route)
-  );
+  // B: Public API Routes -> Available to everyone. NEVER redirect.
+  const publicApiRoutes = [
+    "/api/public",
+    "/api/webhook",
+    "/api/uploadthing", 
+    "/api/auth", // <--- FIX: Allow NextAuth to handle its own routes
+  ];
+
+  const isAuthRoute = authRoutes.some((route) => pathname.startsWith(route));
+  const isPublicApiRoute = publicApiRoutes.some((route) => pathname.startsWith(route));
 
   /* -------------------------------------------------------------
    * 3. READ AUTH TOKEN
@@ -81,25 +78,24 @@ export default async function middleware(req) {
   /* -------------------------------------------------------------
    * 4. PROTECT PRIVATE API ROUTES
    * ------------------------------------------------------------- */
-  if (pathname.startsWith("/api")) {
-    const apiIsPublic = publicRoutes.some((r) => pathname.startsWith(r));
-
-    if (!token && !apiIsPublic) {
-      return new NextResponse("Unauthorized API access", { status: 401 });
-    }
+  // If it's an API route, NOT public, and NO token -> 401
+  if (pathname.startsWith("/api") && !isPublicApiRoute && !token) {
+    return new NextResponse("Unauthorized API access", { status: 401 });
   }
 
   /* -------------------------------------------------------------
-   * 5. AUTH PAGES BEHAVIOR
+   * 5. AUTH PAGES BEHAVIOR (Guest Only)
    * ------------------------------------------------------------- */
-  if (token && isPublicRoute) {
+  // If user is logged in and tries to hit /login or /register -> Redirect to Dashboard
+  if (token && isAuthRoute) {
     return NextResponse.redirect(new URL("/", req.url));
   }
 
   /* -------------------------------------------------------------
-   * 6. PROTECT ALL NON-PUBLIC PAGES
+   * 6. PROTECT APP PAGES
    * ------------------------------------------------------------- */
-  if (!token && !isPublicRoute && !pathname.startsWith("/api")) {
+  // If NO token, NOT an auth page, and NOT a public API -> Redirect to Login
+  if (!token && !isAuthRoute && !isPublicApiRoute) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
