@@ -17,8 +17,9 @@ const TIMEZONES = [
   "Asia/Bangkok", "Asia/Singapore", "Asia/Shanghai", "Asia/Tokyo", "Australia/Sydney", "Pacific/Auckland"
 ];
 
-export function SettingsSection({ expert, languages, setLanguages, errors = {} }) {
-  const [timezone, setTimezone] = useState(expert?.timezone || "Australia/Sydney");
+export function SettingsSection({ expert, languages, setLanguages, timezone, setTimezone, errors = {} }) {
+    // ❌ REMOVE this line:
+    // const [timezone, setTimezone] = useState(expert?.timezone || "Australia/Sydney");
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">

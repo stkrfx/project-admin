@@ -116,17 +116,18 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
   }, [initialData]);
 
   const user = initialData.user || {};
-const draft = initialData.draft || {};
+  const draft = initialData.draft || {};
 
-// ----------------------------
-// 3. CONTROLLED STATE
-// ----------------------------
+  // ----------------------------
+  // 3. CONTROLLED STATE
+  // ----------------------------
 
-// Prefer DRAFT values → fallback to LIVE user values
-const [userName, setUserName] = useState(draft.name || user.name || "");
-const [userUsername, setUserUsername] = useState(draft.username || user.username || "");
-const [userImage, setUserImage] = useState(draft.image || user.image || "");
+  // Prefer DRAFT values → fallback to LIVE user values
+  const [userName, setUserName] = useState(draft.name || user.name || "");
+  const [userUsername, setUserUsername] = useState(draft.username || user.username || "");
+  const [userImage, setUserImage] = useState(draft.image || user.image || "");
 
+  const [timezone, setTimezone] = useState(expert.timezone || "Australia/Sydney");
   const [bio, setBio] = useState(expert.bio || "");
   const [specialization, setSpecialization] = useState(
     expert.specialization || ""
@@ -165,6 +166,7 @@ const [userImage, setUserImage] = useState(draft.image || user.image || "");
       leaves,
       bio,
       specialization,
+      timezone, // ⭐ Add this
     ]
   );
 
@@ -191,6 +193,7 @@ const [userImage, setUserImage] = useState(draft.image || user.image || "");
     formData.set("name", userName);
     formData.set("username", userUsername);
     formData.set("image", userImage);
+    formData.set("timezone", timezone);
     formData.set("gender", gender);
     formData.set("location", location);
     formData.set("linkedin", socialLinks.linkedin || "");
@@ -309,9 +312,9 @@ const [userImage, setUserImage] = useState(draft.image || user.image || "");
           </TabsContent>
 
           <TabsContent value="services">
-            <ServicesSection 
-              services={services} 
-              setServices={setServices} 
+            <ServicesSection
+              services={services}
+              setServices={setServices}
               errors={errors} // FIX: Pass errors
             />
           </TabsContent>
@@ -327,19 +330,21 @@ const [userImage, setUserImage] = useState(draft.image || user.image || "");
           </TabsContent>
 
           <TabsContent value="documents">
-            <DocumentsSection 
-              documents={documents} 
-              setDocuments={setDocuments} 
+            <DocumentsSection
+              documents={documents}
+              setDocuments={setDocuments}
               errors={errors} // FIX: Pass errors
             />
           </TabsContent>
 
           <TabsContent value="settings">
-            <SettingsSection 
-              expert={expert} 
-              languages={languages} 
-              setLanguages={setLanguages} 
-              errors={errors} // FIX: Pass errors
+            <SettingsSection
+              expert={expert}
+              languages={languages}
+              setLanguages={setLanguages}
+              timezone={timezone}          // ⭐ Pass state down
+              setTimezone={setTimezone}    // ⭐ Allow editing
+              errors={errors}
             />
           </TabsContent>
         </div>

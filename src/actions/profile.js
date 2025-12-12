@@ -10,36 +10,49 @@ import { z } from "zod";
 
 // --- VALIDATION SCHEMAS ---
 const ProfileSchema = z.object({
-  // Identity
+  // -------------------------
+  // Identity (ALL REQUIRED)
+  // -------------------------
+  image: z.string().min(1, "Profile picture is required"),
   name: z.string().min(2, "Name is required"),
   username: z
     .string()
     .min(3, "Username must be 3+ chars")
     .regex(/^[a-z0-9]+$/, "Lowercase alphanumeric only"),
-  gender: z.string().optional(),
-  location: z.string().optional(),
+  gender: z.string().min(1, "Gender is required"),
+  location: z.string().min(2, "Location is required"),
+  timezone: z.string().min(1, "Timezone is required"),
 
+  // -------------------------
   // Professional
+  // -------------------------
   specialization: z.string().min(2, "Headline is required"),
   bio: z.string().min(50, "Bio must be at least 50 characters"),
 
-  // Complex Fields
-  workHistory: z.array(z.any()).optional(),
-  education: z.array(z.any()).optional(),
-  services: z.array(z.any()).optional(),
-  languages: z.array(z.any()).optional(),
-  tags: z.array(z.any()).optional(),
-  documents: z.array(z.any()).optional(),
+  // -------------------------
+  // Complex Required Lists
+  // -------------------------
+  workHistory: z.array(z.any()).min(1, "Add at least one work experience"),
+  education: z.array(z.any()).min(1, "Add at least one education"),
+  services: z.array(z.any()).min(1, "Add at least one service"),
+  languages: z.array(z.any()).min(1, "Add at least one language"),
+  tags: z.array(z.any()).min(1, "Add at least one skill"),
+  documents: z.array(z.any()).min(1, "Upload at least one document"),
 
+  // -------------------------
   // Availability
-  availability: z.array(z.any()).optional(),
+  // -------------------------
+  availability: z.array(z.any()).min(1, "Set your weekly schedule"),
   leaves: z.array(z.any()).optional(),
 
-  // Social
+  // -------------------------
+  // Social (Optional)
+  // -------------------------
   linkedin: z.string().optional().or(z.literal("")),
   twitter: z.string().optional().or(z.literal("")),
   website: z.string().optional().or(z.literal("")),
 });
+
 
 /* ============================================================================
  * GET PROFILE (with atomic upsert + future availability auto-apply)
@@ -113,26 +126,36 @@ export async function updateProfile(prevState, formData) {
 
     // Collect raw form data
     const rawData = {
+      // Identity
+      image: formData.get("image"),
       name: formData.get("name"),
       username: formData.get("username"),
       gender: formData.get("gender"),
       location: formData.get("location"),
+      timezone: formData.get("timezone"),
+    
+      // Professional
       specialization: formData.get("specialization"),
       bio: formData.get("bio"),
-
-      linkedin: formData.get("linkedin"),
-      twitter: formData.get("twitter"),
-      website: formData.get("website"),
-
+    
+      // Complex Fields
       workHistory: parseJSON("workHistory"),
       education: parseJSON("education"),
       services: parseJSON("services"),
       languages: parseJSON("languages"),
       tags: parseJSON("tags"),
       documents: parseJSON("documents"),
+    
+      // Availability
       availability: parseJSON("availability"),
       leaves: parseJSON("leaves"),
+    
+      // Social
+      linkedin: formData.get("linkedin"),
+      twitter: formData.get("twitter"),
+      website: formData.get("website"),
     };
+    
 
     // Validate input
     const validated = ProfileSchema.safeParse(rawData);
