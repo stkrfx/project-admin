@@ -8,11 +8,17 @@ import { authRateLimit } from "@/lib/limiter";
 
 export const authOptions = {
   providers: [
+    /* ----------------------------------------------------
+     * GOOGLE PROVIDER
+     * ---------------------------------------------------- */
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     }),
 
+    /* ----------------------------------------------------
+     * CREDENTIALS (Email + Password + OTP)
+     * ---------------------------------------------------- */
     CredentialsProvider({
       name: "Credentials",
       credentials: {
@@ -24,17 +30,16 @@ export const authOptions = {
       async authorize(credentials) {
         if (!credentials?.email) throw new Error("Email required.");
 
-        // 🔥 Normalize email ALWAYS (Trim & Lowercase)
-        // [!code change] Added .trim() to prevent whitespace issues
+        // ✅ Normalize input email ALWAYS
         const email = credentials.email.trim().toLowerCase();
 
-        // 1. RATE LIMIT
+        // 🔥 Rate limit brute forcing
         const { success } = await authRateLimit.limit(email);
         if (!success) throw new Error("Too many login attempts. Try again later.");
 
         await connectDB();
 
-        // 2. FIND USER (case-insensitive lookup)
+        // Look up expert by email
         const user = await User.findOne({
           email,
           role: "expert",
@@ -43,20 +48,19 @@ export const authOptions = {
         if (!user) throw new Error("No expert account found. Please register.");
         if (user.isBanned) throw new Error("This account has been suspended.");
 
-        /* ------------------------------------------------
-         * OTP LOGIN
-         * ------------------------------------------------ */
+        /* ----------------------------------------------------
+         * OTP LOGIN FLOW
+         * ---------------------------------------------------- */
         if (credentials.otp) {
           if (!user.otp || !user.otpExpiry)
             throw new Error("No OTP issued. Please request a new one.");
 
-          // Compare OTP with hash
           const isValidOtp = await bcrypt.compare(credentials.otp, user.otp);
           if (!isValidOtp) throw new Error("Invalid OTP");
 
-          if (user.otpExpiry < new Date()) throw new Error("OTP has expired");
+          if (user.otpExpiry < new Date())
+            throw new Error("OTP has expired. Please request a new one.");
 
-          // OTP Success → Verify account
           user.isVerified = true;
           user.otp = undefined;
           user.otpExpiry = undefined;
@@ -65,9 +69,9 @@ export const authOptions = {
           return user;
         }
 
-        /* ------------------------------------------------
-         * PASSWORD LOGIN
-         * ------------------------------------------------ */
+        /* ----------------------------------------------------
+         * PASSWORD LOGIN FLOW
+         * ---------------------------------------------------- */
         if (credentials.password) {
           if (!user.password)
             throw new Error("Please login with Google or reset your password.");
@@ -86,74 +90,92 @@ export const authOptions = {
     }),
   ],
 
+  /* ----------------------------------------------------
+   * CALLBACKS
+   * ---------------------------------------------------- */
   callbacks: {
     /* ----------------------------------------------------
-     * GOOGLE LOGIN FIX: Normalize email for all queries
+     * GOOGLE SIGN-IN
      * ---------------------------------------------------- */
     async signIn({ user, account, profile }) {
-      if (account.provider === "google") {
-        try {
-          await connectDB();
+      if (account.provider !== "google") return true;
 
-          // [!code change] Added .trim()
-          const normalizedEmail = (user.email || "").trim().toLowerCase();
+      try {
+        await connectDB();
 
-          let existingUser = await User.findOne({
-            email: normalizedEmail,
-            role: "expert",
-          });
+        const normalizedEmail = (user.email || "").trim().toLowerCase();
 
-          if (existingUser) {
-            if (existingUser.isBanned) return false;
+        let existingUser = await User.findOne({
+          email: normalizedEmail,
+          role: "expert",
+        });
 
-            if (!existingUser.googleId) existingUser.googleId = profile.sub;
+        if (existingUser) {
+          if (existingUser.isBanned) return false;
 
-            // Update profile picture if generic avatar
-            const isGeneric =
-              !existingUser.image ||
-              existingUser.image.includes("ui-avatars.com");
+          // Link Google ID if missing
+          if (!existingUser.googleId) existingUser.googleId = profile.sub;
 
-            if (isGeneric && profile.picture) {
-              existingUser.image = profile.picture;
-            }
+          // Replace generic Avatar if needed
+          const isGeneric =
+            !existingUser.image ||
+            existingUser.image.includes("ui-avatars.com");
 
-            if (!existingUser.isVerified) existingUser.isVerified = true;
-
-            await existingUser.save();
-            return true;
+          if (isGeneric && profile.picture) {
+            existingUser.image = profile.picture;
           }
 
-          // Create new expert account
-          const username = generateFromEmail(normalizedEmail, 3);
-
-          await User.create({
-            name: user.name,
-            email: normalizedEmail,
-            image: user.image,
-            username,
-            role: "expert",
-            provider: "google",
-            googleId: profile.sub,
-            isVerified: true,
-          });
-
+          if (!existingUser.isVerified) existingUser.isVerified = true;
+          await existingUser.save();
           return true;
-        } catch (error) {
-          console.error("Google Sign-In Error:", error);
-          return false;
         }
-      }
 
-      return true;
+        // Create BRAND NEW user
+        const username = generateFromEmail(normalizedEmail, 3);
+
+        await User.create({
+          name: user.name,
+          email: normalizedEmail,
+          image: user.image,
+          username,
+          role: "expert",
+          provider: "google",
+          googleId: profile.sub,
+          isVerified: true,
+        });
+
+        return true;
+      } catch (err) {
+        console.error("Google Sign-In Error:", err);
+        return false;
+      }
     },
 
-    async jwt({ token, user, trigger, session }) {
+    /* ----------------------------------------------------
+     * JWT CALLBACK (Fix Google ID → MongoDB ID)
+     * ---------------------------------------------------- */
+    async jwt({ token, user, account, trigger, session }) {
+      // First sign-in
       if (user) {
         token.id = user.id;
         token.picture = user.image;
         token.role = user.role;
+
+        // FIX: Google returns invalid `id`, so fetch real ID from DB
+        if (account?.provider === "google") {
+          await connectDB();
+          const dbUser = await User.findOne({
+            email: user.email.toLowerCase(),
+          });
+
+          if (dbUser) {
+            token.id = dbUser._id.toString();
+            token.role = dbUser.role;
+          }
+        }
       }
 
+      // Profile updated
       if (trigger === "update" && session) {
         token.name = session.user.name;
         token.email = session.user.email;
@@ -163,12 +185,17 @@ export const authOptions = {
       return token;
     },
 
+    /* ----------------------------------------------------
+     * SESSION CALLBACK — prevents banned/invalid users
+     * ---------------------------------------------------- */
     async session({ session, token }) {
       if (!token) return session;
 
-      // FIX: Session Persistence (Ban Evasion)
       await connectDB();
-      const currentUser = await User.findById(token.id).select("isBanned isVerified");
+
+      const currentUser = await User.findById(token.id).select(
+        "isBanned isVerified"
+      );
 
       if (!currentUser || currentUser.isBanned || !currentUser.isVerified) {
         return null;
@@ -177,11 +204,15 @@ export const authOptions = {
       session.user.id = token.id;
       session.user.image = token.picture;
       session.user.role = token.role;
+
       return session;
     },
   },
 
   session: { strategy: "jwt" },
   secret: process.env.NEXTAUTH_SECRET,
-  pages: { signIn: "/login" },
+
+  pages: {
+    signIn: "/login",
+  },
 };

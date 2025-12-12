@@ -9,8 +9,9 @@ import bcrypt from "bcryptjs";
 
 export async function resendOtp(email) {
   try {
-    // Normalize email ALWAYS
-    const normalizedEmail = email?.toLowerCase();
+    // [!code change] Normalize email ALWAYS (Trim added)
+    const normalizedEmail = email?.trim().toLowerCase();
+    
     if (!normalizedEmail) return { error: "Email is required." };
 
     // Rate limit by normalized email

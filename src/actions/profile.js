@@ -45,7 +45,6 @@ export async function getProfile() {
     if (!session?.user?.id) return null;
 
     // FIX: ATOMIC UPSERT (Find or Create in one go)
-    // Prevents race conditions where two profiles are created simultaneously.
     let profile = await ExpertProfile.findOneAndUpdate(
       { user: session.user.id },
       { 
@@ -118,21 +117,28 @@ export async function updateProfile(prevState, formData) {
     const data = validated.data;
 
     // 3. Check Username (Unique check excluding current user)
+    // We still check against User model to reserve the slot, though strictly
+    // we might want to check drafts too. For now, we check the live DB.
     if (data.username) {
         const existing = await User.findOne({ username: data.username, _id: { $ne: session.user.id } });
         if (existing) return { success: false, errors: { username: ["Username is already taken"] }, message: "Username taken" };
     }
 
-    // 4. Update User Model
-    await User.findByIdAndUpdate(session.user.id, { 
-        name: data.name, 
-        username: data.username, 
-        image: formData.get("image") // Assuming image URL is passed, handling file upload is separate
-    });
+    // [!code --] REMOVED: Immediate User Update
+    // await User.findByIdAndUpdate(session.user.id, { 
+    //    name: data.name, 
+    //    username: data.username, 
+    //    image: formData.get("image")
+    // });
 
-    // 5. Update Profile Model
+    // 4. Update Profile Model with ALL fields in Draft
     const updatePayload = {
         draft: {
+            // [!code ++] Identity fields now go to Draft
+            name: data.name,
+            username: data.username,
+            image: formData.get("image"),
+
             bio: data.bio,
             specialization: data.specialization,
             gender: data.gender,
@@ -152,7 +158,7 @@ export async function updateProfile(prevState, formData) {
             validFrom: new Date(new Date().setDate(new Date().getDate() + 1))
         },
         hasPendingUpdates: true,
-        isOnboarded: true,
+        isOnboarded: true, // This might need admin approval too in a strict flow, but assuming onboarding is a state flag.
         rejectionReason: null
     };
 

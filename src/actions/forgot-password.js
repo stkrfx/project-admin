@@ -16,8 +16,13 @@ export async function forgotPassword(values) {
     const validatedFields = forgotSchema.safeParse(values);
     if (!validatedFields.success) return { error: "Invalid email." };
 
-    const { email } = validatedFields.data;
+    // [!code change] Extract raw email
+    const { email: rawEmail } = validatedFields.data;
+    
+    // [!code ++] FIX: Normalize email immediately (Trim & Lowercase)
+    const email = rawEmail.trim().toLowerCase();
 
+    // [!code change] Use normalized email for Rate Limiting
     const { success } = await otpRateLimit.limit(email);
     if (!success) {
       return { error: "Too many requests. Please wait 10 minutes." };
@@ -25,10 +30,10 @@ export async function forgotPassword(values) {
 
     await connectDB();
 
+    // [!code change] Query with normalized email
     const user = await User.findOne({ email, role: "expert" });
 
     // SECURITY: Prevent User Enumeration
-    // Return success message even if user not found.
     if (!user || user.provider === "google") {
       return { success: "If an account exists, a reset link has been sent." };
     }
