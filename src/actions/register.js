@@ -37,8 +37,7 @@ export async function registerUser(values) {
     });
 
     /* -----------------------------------------------------------
-     * DO NOT reveal if account exists (Anti enumeration)
-     * Verified account → pretend OTP sent
+     * Anti-enumeration: Never expose user existence
      * ----------------------------------------------------------- */
     if (existingUser && existingUser.isVerified) {
       return {
@@ -47,16 +46,17 @@ export async function registerUser(values) {
       };
     }
 
-    // Prepare OTP + password hash
+    // Build OTP + password hash
     const otp = generateSecureOtp(6);
     const otpHash = await bcrypt.hash(otp, 10);
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
     const hashedPassword = await bcrypt.hash(password, 10);
 
     let userRecord = existingUser;
+    let mustSendEmailAfterCommit = false;
 
     /* -----------------------------------------------------------
-     * CASE 1 → Unverified existing user → Update silently
+     * CASE 1 → Update unverified user silently
      * ----------------------------------------------------------- */
     if (existingUser && !existingUser.isVerified) {
       existingUser.name = name;
@@ -64,10 +64,11 @@ export async function registerUser(values) {
       existingUser.otp = otpHash;
       existingUser.otpExpiry = otpExpiry;
       await existingUser.save();
+      mustSendEmailAfterCommit = true; // will send later
     }
 
     /* -----------------------------------------------------------
-     * CASE 2 → Create new user WITH TRANSACTION
+     * CASE 2 → CREATE NEW USER IN TRANSACTION
      * ----------------------------------------------------------- */
     if (!existingUser) {
       const session = await mongoose.startSession();
@@ -97,28 +98,36 @@ export async function registerUser(values) {
 
         await ExpertProfile.create([{ user: userRecord._id }], { session });
 
-        // Try to send email BEFORE committing DB changes
-        const sent = await sendOtpEmail(normalizedEmail, otp);
-
-        if (!sent) {
-          // Rollback safely — NO ghost accounts remain
-          await session.abortTransaction();
-          session.endSession();
-          return { error: "Failed to send verification email. Please try again." };
-        }
-
-        // Commit DB changes ONLY if email succeeded
+        // IMPORTANT FIX:
+        // -------------------------------------------------------
+        // COMMIT FIRST → release DB locks BEFORE sending email
+        // -------------------------------------------------------
         await session.commitTransaction();
         session.endSession();
-      } catch (dbErr) {
-        console.error("Transaction Error:", dbErr);
+
+        mustSendEmailAfterCommit = true;
+      } catch (err) {
+        console.error("Transaction Error:", err);
         await session.abortTransaction();
         session.endSession();
         return { error: "Registration failed. Please try again." };
       }
-    } else {
-      // Existing unverified → email send
-      await sendOtpEmail(normalizedEmail, otp);
+    }
+
+    /* -----------------------------------------------------------
+     * SEND EMAIL AFTER DB COMMIT (Non-blocking)
+     * ----------------------------------------------------------- */
+    if (mustSendEmailAfterCommit) {
+      try {
+        await sendOtpEmail(normalizedEmail, otp);
+      } catch (emailError) {
+        console.error("Email failed after commit:", emailError);
+
+        return {
+          success: "Account created, but email failed. Please use Resend OTP.",
+          email: normalizedEmail,
+        };
+      }
     }
 
     return {

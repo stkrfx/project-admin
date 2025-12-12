@@ -25,17 +25,19 @@ import {
 
 import { registerUser } from "@/actions/register";
 
-// ENFORCED PASSWORD SECURITY
-const passwordRegex = /^(?=.*[0-9])(?=.*[!@#$%^&*])[a-zA-Z0-9!@#$%^&*]{8,}$/;
+// ENFORCED PASSWORD SECURITY — strong & consistent with reset-password
+const passwordRegex =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]).{8,}$/;
 
 const formSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
   email: z.string().email({ message: "Please enter a valid email address." }),
-  password: z.string().regex(passwordRegex, { 
-    message: "Min 8 chars, 1 number, 1 special char (!@#$%^&*)." 
+
+  password: z.string().regex(passwordRegex, {
+    message:
+      "Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special character.",
   }),
 });
-
 export default function RegisterForm() {
   const router = useRouter();
   const [loadingType, setLoadingType] = useState(null);

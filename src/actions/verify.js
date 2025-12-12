@@ -7,14 +7,13 @@ import { authRateLimit } from "@/lib/limiter";
 
 export async function verifyOtp(email, otp) {
   try {
-    // Normalize ALWAYS (trim + lowercase)
     const normalizedEmail = email?.trim().toLowerCase();
 
     if (!normalizedEmail || !otp) {
-      return { error: "Invalid request." }; // Generic response
+      return { error: "Verification failed. Invalid code or email." };
     }
 
-    // Rate limit OTP attempts
+    // Rate limit all OTP attempts
     const { success } = await authRateLimit.limit(normalizedEmail);
     if (!success) {
       return {
@@ -28,29 +27,23 @@ export async function verifyOtp(email, otp) {
       "+otp +otpExpiry"
     );
 
-    // ❗ Security: NEVER reveal user existence
-    if (!user) {
-      return { error: "Invalid request." };
+    // ❌ DO NOT reveal whether user exists or is verified
+    if (!user || user.isVerified) {
+      return { error: "Verification failed. Invalid code or email." };
     }
 
-    // Already verified
-    if (user.isVerified) {
-      return { success: "User already verified." };
-    }
-
-    // Compare OTP with hash
-    const isValid = await bcrypt.compare(otp, user.otp);
-
-    if (!isValid) {
-      return { error: "Invalid OTP." }; // Generic, safe
+    // Validate OTP against stored hash
+    const isValidOtp = await bcrypt.compare(otp, user.otp);
+    if (!isValidOtp) {
+      return { error: "Verification failed. Invalid code or email." };
     }
 
     // Check expiry
     if (user.otpExpiry < new Date()) {
-      return { error: "OTP has expired. Please request a new one." };
+      return { error: "Verification failed. Invalid code or email." };
     }
 
-    // Mark verified and clear OTP
+    // OTP is correct → verify user
     user.isVerified = true;
     user.otp = undefined;
     user.otpExpiry = undefined;
@@ -59,6 +52,6 @@ export async function verifyOtp(email, otp) {
     return { success: "Account verified successfully!" };
   } catch (error) {
     console.error("Verification Error:", error);
-    return { error: "Verification failed." };
+    return { error: "Verification failed. Invalid code or email." };
   }
 }

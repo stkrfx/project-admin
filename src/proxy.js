@@ -16,14 +16,23 @@ const ratelimit = new Ratelimit({
 
 export default async function middleware(req) {
   const { pathname } = req.nextUrl;
-  const ip = req.ip || "127.0.0.1";
 
   /* -------------------------------------------------------------
-   * 1. RATE LIMIT public endpoints
+   * ⭐ FIXED: REAL IP DETECTION (stops rate limit bypass)
+   * ------------------------------------------------------------- */
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.ip ||
+    "127.0.0.1";
+
+  /* -------------------------------------------------------------
+   * 1. RATE LIMIT PUBLIC ENDPOINTS
    * ------------------------------------------------------------- */
   const publicRateLimited = ["/api", "/login", "/register"];
+
   if (publicRateLimited.some((p) => pathname.startsWith(p))) {
     const { success, limit, reset, remaining } = await ratelimit.limit(ip);
+
     if (!success) {
       return new NextResponse("Too Many Requests", {
         status: 429,
@@ -45,8 +54,8 @@ export default async function middleware(req) {
     "/verify-email",
     "/forgot-password",
     "/reset-password",
-    "/api/public",           // NEW: Explicitly public API namespace
-    "/api/webhook",          // Webhooks shouldn't require auth
+    "/api/public",     
+    "/api/webhook",    
   ];
 
   const isPublicRoute = publicRoutes.some((route) =>
@@ -54,7 +63,7 @@ export default async function middleware(req) {
   );
 
   /* -------------------------------------------------------------
-   * 3. GET AUTH TOKEN
+   * 3. READ AUTH TOKEN
    * ------------------------------------------------------------- */
   const token = await getToken({
     req,
@@ -62,22 +71,20 @@ export default async function middleware(req) {
   });
 
   /* -------------------------------------------------------------
-   * 4. PROTECT API ROUTES — DEFAULT DENY
+   * 4. DEFAULT-DENY FOR API ROUTES (SAFER)
    * ------------------------------------------------------------- */
   if (pathname.startsWith("/api")) {
     const apiIsPublic = publicRoutes.some((r) => pathname.startsWith(r));
 
-    // ❌ PRIVATE API ROUTE WITHOUT AUTH → reject
     if (!token && !apiIsPublic) {
       return new NextResponse("Unauthorized API access", { status: 401 });
     }
   }
 
   /* -------------------------------------------------------------
-   * 5. AUTH PAGE ACCESS RULES
+   * 5. AUTH PAGES BEHAVIOR
    * ------------------------------------------------------------- */
   if (token && isPublicRoute) {
-    // Already logged in → redirect to dashboard
     return NextResponse.redirect(new URL("/", req.url));
   }
 

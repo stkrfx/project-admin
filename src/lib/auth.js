@@ -28,14 +28,14 @@ export const authOptions = {
       },
 
       async authorize(credentials) {
-        if (!credentials?.email) 
+        if (!credentials?.email)
           throw new Error("Invalid email or password.");
 
         const email = credentials.email.trim().toLowerCase();
 
         // Rate limit
         const { success } = await authRateLimit.limit(email);
-        if (!success) 
+        if (!success)
           throw new Error("Too many login attempts. Try again later.");
 
         await connectDB();
@@ -46,7 +46,6 @@ export const authOptions = {
           role: "expert",
         }).select("+password +otp +otpExpiry");
 
-        // Generic error — prevents user enumeration
         if (!user) throw new Error("Invalid email or password.");
         if (user.isBanned) throw new Error("Invalid email or password.");
 
@@ -80,7 +79,7 @@ export const authOptions = {
             throw new Error("Invalid email or password.");
 
           if (!user.isVerified)
-            throw new Error("Invalid email or password."); // generic
+            throw new Error("Invalid email or password.");
 
           const isMatch = await bcrypt.compare(credentials.password, user.password);
           if (!isMatch)
@@ -98,6 +97,9 @@ export const authOptions = {
    * CALLBACKS
    * ---------------------------------------------------- */
   callbacks: {
+    /* ----------------------------------------------------
+     * GOOGLE SIGN-IN
+     * ---------------------------------------------------- */
     async signIn({ user, account, profile }) {
       if (account.provider !== "google") return true;
 
@@ -113,7 +115,7 @@ export const authOptions = {
         if (existingUser) {
           if (existingUser.isBanned) return false;
 
-          if (!existingUser.googleId) 
+          if (!existingUser.googleId)
             existingUser.googleId = profile.sub;
 
           const isGeneric =
@@ -150,26 +152,35 @@ export const authOptions = {
       }
     },
 
+    /* ----------------------------------------------------
+     * JWT CALLBACK — add tokenVersion
+     * ---------------------------------------------------- */
     async jwt({ token, user, account, trigger, session }) {
+      // First sign-in
       if (user) {
         token.id = user.id;
         token.picture = user.image;
         token.role = user.role;
+
+        // ⭐ ADD tokenVersion — required for session invalidation
+        token.tokenVersion = user.tokenVersion || 0;
 
         // Fix Google ID mapping
         if (account?.provider === "google") {
           await connectDB();
           const dbUser = await User.findOne({
             email: user.email.toLowerCase(),
-          });
+          }).select("role tokenVersion");
 
           if (dbUser) {
             token.id = dbUser._id.toString();
             token.role = dbUser.role;
+            token.tokenVersion = dbUser.tokenVersion || 0;
           }
         }
       }
 
+      // Update on profile update
       if (trigger === "update" && session) {
         token.name = session.user.name;
         token.email = session.user.email;
@@ -179,18 +190,28 @@ export const authOptions = {
       return token;
     },
 
+    /* ----------------------------------------------------
+     * SESSION CALLBACK — enforce tokenVersion
+     * ---------------------------------------------------- */
     async session({ session, token }) {
       if (!token) return session;
 
       await connectDB();
 
+      // Select tokenVersion for version checking
       const currentUser = await User.findById(token.id).select(
-        "isBanned isVerified"
+        "isBanned isVerified tokenVersion"
       );
 
       if (!currentUser || currentUser.isBanned || !currentUser.isVerified)
         return null;
 
+      // ⭐ If versions don't match → session invalid → logout
+      if ((currentUser.tokenVersion || 0) !== (token.tokenVersion || 0)) {
+        return null;
+      }
+
+      // Attach to session
       session.user.id = token.id;
       session.user.image = token.picture;
       session.user.role = token.role;
