@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { Menu, X, Brain } from "lucide-react"; // Import X and Brain
+import { Menu, X, Brain } from "lucide-react";
 import Sidebar from "@/components/dashboard/sidebar";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -15,11 +15,25 @@ import {
 
 export function MobileSidebar() {
   const [open, setOpen] = useState(false);
+  
+  // 1. Add a state to track mounting
+  const [isMounted, setIsMounted] = useState(false);
+  
   const pathname = usePathname();
+
+  // 2. Set mounted to true once on the client
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
+
+  // 3. Render nothing during SSR to avoid ID mismatch
+  if (!isMounted) {
+    return null;
+  }
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -33,9 +47,6 @@ export function MobileSidebar() {
         </Button>
       </SheetTrigger>
       
-      {/* 1. [&>button]:hidden -> Hides the default ugly 'X' from shadcn 
-          2. p-0 -> Removes default padding so we can structure it ourselves
-      */}
       <SheetContent side="left" className="p-0 bg-white border-r border-zinc-200 w-72 [&>button]:hidden">
         
         <SheetTitle className="sr-only">
