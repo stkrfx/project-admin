@@ -9,9 +9,7 @@ import bcrypt from "bcryptjs";
 
 export async function resendOtp(email) {
   try {
-    // [!code change] Normalize email ALWAYS (Trim added)
     const normalizedEmail = email?.trim().toLowerCase();
-    
     if (!normalizedEmail) return { error: "Email is required." };
 
     // Rate limit by normalized email
@@ -20,36 +18,43 @@ export async function resendOtp(email) {
 
     await connectDB();
 
-    // Use normalized email in DB query
-    const user = await User.findOne({ email: normalizedEmail, role: "expert" }).select(
-      "+otp +otpExpiry"
-    );
+    // Fetch user safely
+    const user = await User.findOne({
+      email: normalizedEmail,
+      role: "expert",
+    }).select("+otp +otpExpiry");
 
-    // SECURITY: Prevent user enumeration
+    // ---------------------------------------------
+    // 🚫 SECURITY: NEVER reveal user existence
+    // ---------------------------------------------
+
+    // CASE A: User does NOT exist → pretend success
     if (!user) {
       return { success: "New code sent!" };
     }
 
+    // CASE B: User exists AND is verified → pretend success, no OTP sent
     if (user.isVerified) {
-      return { success: "Already verified." };
+      return { success: "New code sent!" };
     }
 
-    // Generate OTP
+    // CASE C: User exists AND is NOT verified → issue new OTP
     const otp = generateSecureOtp(6);
     const otpHash = await bcrypt.hash(otp, 10);
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Update user
     user.otp = otpHash;
     user.otpExpiry = otpExpiry;
     await user.save();
 
-    // Send OTP email
     await sendOtpEmail(normalizedEmail, otp);
 
+    // Always return generic success
     return { success: "New code sent!" };
+
   } catch (error) {
     console.error("Resend OTP Error:", error);
+    // Even on error, avoid leaking state
     return { error: "Failed to resend code." };
   }
 }

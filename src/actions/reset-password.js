@@ -5,29 +5,48 @@ import User from "@/models/User";
 import { z } from "zod";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { authRateLimit } from "@/lib/limiter"; // [!code ++]
-import { headers } from "next/headers"; // [!code ++]
+import { authRateLimit } from "@/lib/limiter";
+import { headers } from "next/headers";
+
+/**
+ * Strong password regex (same as registration):
+ * - Min 8 chars
+ * - At least 1 uppercase
+ * - At least 1 lowercase
+ * - At least 1 digit
+ * - At least 1 special char
+ */
+const STRONG_PASSWORD_REGEX =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]).{8,}$/;
 
 const resetSchema = z.object({
   token: z.string().min(1, "Token is missing"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .regex(
+      STRONG_PASSWORD_REGEX,
+      "Password must include uppercase, lowercase, number, and special character"
+    ),
 });
 
 export async function resetPassword(values) {
   try {
     const validated = resetSchema.safeParse(values);
-    if (!validated.success) return { error: "Invalid data." };
+    if (!validated.success) {
+      return { error: validated.error.issues[0].message };
+    }
 
     const { token, password } = validated.data;
 
-    // [!code ++] Rate Limit: Prevent brute-force & spam (IP-based)
+    // 📌 RATE LIMIT — Prevent brute-force or abuse
     const ip = (await headers()).get("x-forwarded-for") || "127.0.0.1";
     const { success } = await authRateLimit.limit(ip);
     if (!success) {
       return { error: "Too many attempts. Please try again in 15 minutes." };
     }
 
-    // 1. Hash the token to match DB storage
+    // 📌 Hash token to match stored value
     const resetTokenHash = crypto
       .createHash("sha256")
       .update(token)
@@ -35,27 +54,34 @@ export async function resetPassword(values) {
 
     await connectDB();
 
-    // 2. Find user with valid, non-expired token
+    // 📌 Lookup user with valid token
     const user = await User.findOne({
       resetPasswordToken: resetTokenHash,
       resetPasswordExpire: { $gt: Date.now() },
-    });
+    }).select("+tokenVersion");
 
     if (!user) {
-      return { error: "Invalid or expired token. Please request a new link." };
+      return { error: "Invalid or expired reset link. Please request a new one." };
     }
 
-    // 3. Update Password & Clear Token
+    // 📌 Update password
     user.password = await bcrypt.hash(password, 10);
+
+    // 📌 Invalidate ALL active sessions immediately
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+
+    // 📌 Clear token fields
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
-    
-    // Ensure they are verified if they successfully reset password (optional but helpful)
-    if (!user.isVerified) user.isVerified = true;
+
+    // Verify email if this was their first valid auth action
+    if (!user.isVerified) {
+      user.isVerified = true;
+    }
 
     await user.save();
 
-    return { success: "Password updated! You can now login." };
+    return { success: "Password updated successfully! Please log in again." };
   } catch (error) {
     console.error("Reset Password Error:", error);
     return { error: "Something went wrong." };

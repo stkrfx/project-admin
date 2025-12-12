@@ -17,7 +17,7 @@ export const authOptions = {
     }),
 
     /* ----------------------------------------------------
-     * CREDENTIALS (Email + Password + OTP)
+     * CREDENTIALS PROVIDER
      * ---------------------------------------------------- */
     CredentialsProvider({
       name: "Credentials",
@@ -28,38 +28,41 @@ export const authOptions = {
       },
 
       async authorize(credentials) {
-        if (!credentials?.email) throw new Error("Email required.");
+        if (!credentials?.email) 
+          throw new Error("Invalid email or password.");
 
-        // ✅ Normalize input email ALWAYS
         const email = credentials.email.trim().toLowerCase();
 
-        // 🔥 Rate limit brute forcing
+        // Rate limit
         const { success } = await authRateLimit.limit(email);
-        if (!success) throw new Error("Too many login attempts. Try again later.");
+        if (!success) 
+          throw new Error("Too many login attempts. Try again later.");
 
         await connectDB();
 
-        // Look up expert by email
+        // Fetch user — do NOT reveal if missing
         const user = await User.findOne({
           email,
           role: "expert",
         }).select("+password +otp +otpExpiry");
 
-        if (!user) throw new Error("No expert account found. Please register.");
-        if (user.isBanned) throw new Error("This account has been suspended.");
+        // Generic error — prevents user enumeration
+        if (!user) throw new Error("Invalid email or password.");
+        if (user.isBanned) throw new Error("Invalid email or password.");
 
         /* ----------------------------------------------------
-         * OTP LOGIN FLOW
+         * OTP LOGIN
          * ---------------------------------------------------- */
         if (credentials.otp) {
           if (!user.otp || !user.otpExpiry)
-            throw new Error("No OTP issued. Please request a new one.");
+            throw new Error("Invalid email or password.");
 
           const isValidOtp = await bcrypt.compare(credentials.otp, user.otp);
-          if (!isValidOtp) throw new Error("Invalid OTP");
+          if (!isValidOtp)
+            throw new Error("Invalid email or password.");
 
           if (user.otpExpiry < new Date())
-            throw new Error("OTP has expired. Please request a new one.");
+            throw new Error("Invalid email or password.");
 
           user.isVerified = true;
           user.otp = undefined;
@@ -70,22 +73,23 @@ export const authOptions = {
         }
 
         /* ----------------------------------------------------
-         * PASSWORD LOGIN FLOW
+         * PASSWORD LOGIN
          * ---------------------------------------------------- */
         if (credentials.password) {
           if (!user.password)
-            throw new Error("Please login with Google or reset your password.");
+            throw new Error("Invalid email or password.");
 
           if (!user.isVerified)
-            throw new Error("Please verify your email first.");
+            throw new Error("Invalid email or password."); // generic
 
           const isMatch = await bcrypt.compare(credentials.password, user.password);
-          if (!isMatch) throw new Error("Invalid credentials");
+          if (!isMatch)
+            throw new Error("Invalid email or password.");
 
           return user;
         }
 
-        throw new Error("Invalid login attempt.");
+        throw new Error("Invalid email or password.");
       },
     }),
   ],
@@ -94,15 +98,11 @@ export const authOptions = {
    * CALLBACKS
    * ---------------------------------------------------- */
   callbacks: {
-    /* ----------------------------------------------------
-     * GOOGLE SIGN-IN
-     * ---------------------------------------------------- */
     async signIn({ user, account, profile }) {
       if (account.provider !== "google") return true;
 
       try {
         await connectDB();
-
         const normalizedEmail = (user.email || "").trim().toLowerCase();
 
         let existingUser = await User.findOne({
@@ -113,24 +113,23 @@ export const authOptions = {
         if (existingUser) {
           if (existingUser.isBanned) return false;
 
-          // Link Google ID if missing
-          if (!existingUser.googleId) existingUser.googleId = profile.sub;
+          if (!existingUser.googleId) 
+            existingUser.googleId = profile.sub;
 
-          // Replace generic Avatar if needed
           const isGeneric =
             !existingUser.image ||
             existingUser.image.includes("ui-avatars.com");
 
-          if (isGeneric && profile.picture) {
+          if (isGeneric && profile.picture)
             existingUser.image = profile.picture;
-          }
 
-          if (!existingUser.isVerified) existingUser.isVerified = true;
+          if (!existingUser.isVerified)
+            existingUser.isVerified = true;
+
           await existingUser.save();
           return true;
         }
 
-        // Create BRAND NEW user
         const username = generateFromEmail(normalizedEmail, 3);
 
         await User.create({
@@ -151,17 +150,13 @@ export const authOptions = {
       }
     },
 
-    /* ----------------------------------------------------
-     * JWT CALLBACK (Fix Google ID → MongoDB ID)
-     * ---------------------------------------------------- */
     async jwt({ token, user, account, trigger, session }) {
-      // First sign-in
       if (user) {
         token.id = user.id;
         token.picture = user.image;
         token.role = user.role;
 
-        // FIX: Google returns invalid `id`, so fetch real ID from DB
+        // Fix Google ID mapping
         if (account?.provider === "google") {
           await connectDB();
           const dbUser = await User.findOne({
@@ -175,7 +170,6 @@ export const authOptions = {
         }
       }
 
-      // Profile updated
       if (trigger === "update" && session) {
         token.name = session.user.name;
         token.email = session.user.email;
@@ -185,9 +179,6 @@ export const authOptions = {
       return token;
     },
 
-    /* ----------------------------------------------------
-     * SESSION CALLBACK — prevents banned/invalid users
-     * ---------------------------------------------------- */
     async session({ session, token }) {
       if (!token) return session;
 
@@ -197,9 +188,8 @@ export const authOptions = {
         "isBanned isVerified"
       );
 
-      if (!currentUser || currentUser.isBanned || !currentUser.isVerified) {
+      if (!currentUser || currentUser.isBanned || !currentUser.isVerified)
         return null;
-      }
 
       session.user.id = token.id;
       session.user.image = token.picture;
@@ -211,8 +201,5 @@ export const authOptions = {
 
   session: { strategy: "jwt" },
   secret: process.env.NEXTAUTH_SECRET,
-
-  pages: {
-    signIn: "/login",
-  },
+  pages: { signIn: "/login" },
 };

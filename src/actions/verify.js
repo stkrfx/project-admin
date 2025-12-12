@@ -7,51 +7,53 @@ import { authRateLimit } from "@/lib/limiter";
 
 export async function verifyOtp(email, otp) {
   try {
-    // Normalize email ALWAYS (Trim & Lowercase)
-    // [!code change] Added .trim()
+    // Normalize ALWAYS (trim + lowercase)
     const normalizedEmail = email?.trim().toLowerCase();
 
     if (!normalizedEmail || !otp) {
-      return { error: "Missing required fields." };
+      return { error: "Invalid request." }; // Generic response
     }
 
-    // Rate Limit: Prevent brute-forcing the OTP
+    // Rate limit OTP attempts
     const { success } = await authRateLimit.limit(normalizedEmail);
     if (!success) {
-      return { error: "Too many attempts. Please try again in 15 minutes." };
+      return {
+        error: "Too many attempts. Please try again in 15 minutes.",
+      };
     }
 
     await connectDB();
 
-    // Always query using normalized email
     const user = await User.findOne({ email: normalizedEmail }).select(
       "+otp +otpExpiry"
     );
 
+    // ❗ Security: NEVER reveal user existence
     if (!user) {
-      return { error: "User not found." };
+      return { error: "Invalid request." };
     }
 
+    // Already verified
     if (user.isVerified) {
       return { success: "User already verified." };
     }
 
-    // Check OTP hash
+    // Compare OTP with hash
     const isValid = await bcrypt.compare(otp, user.otp);
+
     if (!isValid) {
-      return { error: "Invalid OTP." };
+      return { error: "Invalid OTP." }; // Generic, safe
     }
 
-    // Expiry check
+    // Check expiry
     if (user.otpExpiry < new Date()) {
-      return { error: "OTP has expired. Please register again." };
+      return { error: "OTP has expired. Please request a new one." };
     }
 
-    // Mark verified & clean OTP fields
+    // Mark verified and clear OTP
     user.isVerified = true;
     user.otp = undefined;
     user.otpExpiry = undefined;
-
     await user.save();
 
     return { success: "Account verified successfully!" };
