@@ -63,6 +63,7 @@ export default async function middleware(req) {
     "/reset-password",
     "/api/public",
     "/api/webhook",
+    "/api/uploadthing",
   ];
 
   const isPublicRoute = publicRoutes.some((route) =>

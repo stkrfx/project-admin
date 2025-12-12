@@ -13,10 +13,8 @@ export function UserAvatar({ user, className, ...props }) {
     ? user.name.split(" ").map((n) => n[0]).join("").substring(0, 2).toUpperCase()
     : "U";
 
-  // Check if image is valid (ignore ui-avatars)
   // Check if image is valid (allow ui-avatars)
-const isValidImage = user?.image && !imageError;
-
+  const isValidImage = user?.image && !imageError;
 
   return (
     <Avatar className={className} {...props}>
@@ -31,6 +29,8 @@ const isValidImage = user?.image && !imageError;
             priority // Preloads the image!
             onError={() => setImageError(true)}
             referrerPolicy="no-referrer"
+            // 👇 ADD THIS LINE: Skip optimization for ui-avatars to fix SVG error
+            unoptimized={user.image?.includes("ui-avatars.com")}
           />
         </div>
       ) : (
