@@ -7,23 +7,39 @@ export const metadata = {
 };
 
 export default async function VerifyEmailPage({ searchParams }) {
-  // Await searchParams (Next.js 16 requirement)
   const params = await searchParams;
-  const email = params?.email;
 
-  // PAGE LEVEL GUARD: 
-  // If no email is in the URL, this page is useless. Kick them back to register.
+  // NEW — Decode email safely
+  let email = null;
+
+  try {
+    if (params?.data) {
+      // Base64 decode (from register redirect)
+      email = atob(params.data)?.trim()?.toLowerCase();
+    } else if (params?.email) {
+      // Backward compatibility (older URLs)
+      email = params.email.trim().toLowerCase();
+    }
+  } catch (err) {
+    // Bad or tampered Base64 → block access
+    return redirect("/register");
+  }
+
+  // PAGE-LEVEL GUARD
   if (!email) {
-    redirect("/register");
+    return redirect("/register");
   }
 
   return (
     <div className="flex min-h-dvh w-full bg-white">
       {/* Left Side - Visuals */}
       <div className="hidden lg:flex w-1/2 bg-zinc-950 items-center justify-center relative overflow-hidden">
-        <div 
+        <div
           className="absolute inset-0 opacity-40 mix-blend-overlay bg-cover bg-center"
-          style={{ backgroundImage: "url('https://images.unsplash.com/photo-1614064641938-3bcee529cfc4?q=80&w=2669&auto=format&fit=crop')" }}
+          style={{
+            backgroundImage:
+              "url('https://images.unsplash.com/photo-1614064641938-3bcee529cfc4?q=80&w=2669&auto=format&fit=crop')",
+          }}
         ></div>
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/90 via-zinc-950/50 to-zinc-950/30"></div>
 
@@ -33,17 +49,18 @@ export default async function VerifyEmailPage({ searchParams }) {
             Security Check
           </div>
           <h1 className="text-5xl font-bold tracking-tight mb-6 leading-[1.1]">
-            Protecting your <br/> digital assets.
+            Protecting your <br /> digital assets.
           </h1>
           <p className="text-zinc-400 text-lg leading-relaxed">
-            We require email verification to ensure your expert profile and revenue data remain secure and exclusive to you.
+            We require email verification to ensure your expert profile and
+            revenue data remain secure and exclusive to you.
           </p>
         </div>
       </div>
 
       {/* Right Side - Form */}
       <div className="flex w-full lg:w-1/2 items-center justify-center p-8 py-12 lg:p-16">
-        <VerifyForm />
+        <VerifyForm email={email} />
       </div>
     </div>
   );

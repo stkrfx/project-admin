@@ -120,9 +120,34 @@ export async function updateProfile(prevState, formData) {
     // We still check against User model to reserve the slot, though strictly
     // we might want to check drafts too. For now, we check the live DB.
     if (data.username) {
-        const existing = await User.findOne({ username: data.username, _id: { $ne: session.user.id } });
-        if (existing) return { success: false, errors: { username: ["Username is already taken"] }, message: "Username taken" };
-    }
+      // Check live users table
+      const existingUser = await User.findOne({
+          username: data.username,
+          _id: { $ne: session.user.id },
+      });
+  
+      if (existingUser) {
+          return {
+              success: false,
+              errors: { username: ["Username is already taken"] },
+              message: "Username taken",
+          };
+      }
+  
+      // ⭐ NEW: Check draft usernames of other expert profiles
+      const existingDraft = await ExpertProfile.findOne({
+          "draft.username": data.username,
+          user: { $ne: session.user.id },
+      });
+  
+      if (existingDraft) {
+          return {
+              success: false,
+              errors: { username: ["Username is reserved by another expert"] },
+              message: "Username already reserved by another user",
+          };
+      }
+  }
 
     // [!code --] REMOVED: Immediate User Update
     // await User.findByIdAndUpdate(session.user.id, { 

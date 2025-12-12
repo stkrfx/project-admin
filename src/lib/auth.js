@@ -33,25 +33,25 @@ export const authOptions = {
 
         const email = credentials.email.trim().toLowerCase();
 
-        // Rate limit
+        // Rate limit login attempts
         const { success } = await authRateLimit.limit(email);
         if (!success)
           throw new Error("Too many login attempts. Try again later.");
 
         await connectDB();
 
-        // Fetch user — do NOT reveal if missing
+        // Do not reveal if user exists
         const user = await User.findOne({
           email,
           role: "expert",
-        }).select("+password +otp +otpExpiry");
+        }).select("+password +otp +otpExpiry +tokenVersion");
 
         if (!user) throw new Error("Invalid email or password.");
         if (user.isBanned) throw new Error("Invalid email or password.");
 
-        /* ----------------------------------------------------
+        /* -----------------------------
          * OTP LOGIN
-         * ---------------------------------------------------- */
+         * ----------------------------- */
         if (credentials.otp) {
           if (!user.otp || !user.otpExpiry)
             throw new Error("Invalid email or password.");
@@ -66,14 +66,17 @@ export const authOptions = {
           user.isVerified = true;
           user.otp = undefined;
           user.otpExpiry = undefined;
-          await user.save();
 
+          // IMPORTANT: attach tokenVersion
+          user.tokenVersion = user.tokenVersion || 0;
+
+          await user.save();
           return user;
         }
 
-        /* ----------------------------------------------------
+        /* -----------------------------
          * PASSWORD LOGIN
-         * ---------------------------------------------------- */
+         * ----------------------------- */
         if (credentials.password) {
           if (!user.password)
             throw new Error("Invalid email or password.");
@@ -128,6 +131,8 @@ export const authOptions = {
           if (!existingUser.isVerified)
             existingUser.isVerified = true;
 
+          existingUser.tokenVersion = existingUser.tokenVersion || 0;
+
           await existingUser.save();
           return true;
         }
@@ -143,6 +148,7 @@ export const authOptions = {
           provider: "google",
           googleId: profile.sub,
           isVerified: true,
+          tokenVersion: 0,
         });
 
         return true;
@@ -153,24 +159,22 @@ export const authOptions = {
     },
 
     /* ----------------------------------------------------
-     * JWT CALLBACK — add tokenVersion
+     * JWT CALLBACK — carries tokenVersion
      * ---------------------------------------------------- */
     async jwt({ token, user, account, trigger, session }) {
-      // First sign-in
       if (user) {
         token.id = user.id;
         token.picture = user.image;
         token.role = user.role;
-
-        // ⭐ ADD tokenVersion — required for session invalidation
         token.tokenVersion = user.tokenVersion || 0;
 
-        // Fix Google ID mapping
+        // Fix Google ID mapping to valid MongoDB _id
         if (account?.provider === "google") {
           await connectDB();
+
           const dbUser = await User.findOne({
             email: user.email.toLowerCase(),
-          }).select("role tokenVersion");
+          }).select("tokenVersion role");
 
           if (dbUser) {
             token.id = dbUser._id.toString();
@@ -180,41 +184,22 @@ export const authOptions = {
         }
       }
 
-      // Update on profile update
-      if (trigger === "update" && session) {
-        token.name = session.user.name;
-        token.email = session.user.email;
-        token.picture = session.user.image;
-      }
-
       return token;
     },
 
     /* ----------------------------------------------------
-     * SESSION CALLBACK — enforce tokenVersion
+     * SESSION CALLBACK — NO MORE DB LOOKUPS (FAST)
      * ---------------------------------------------------- */
     async session({ session, token }) {
       if (!token) return session;
 
-      await connectDB();
-
-      // Select tokenVersion for version checking
-      const currentUser = await User.findById(token.id).select(
-        "isBanned isVerified tokenVersion"
-      );
-
-      if (!currentUser || currentUser.isBanned || !currentUser.isVerified)
-        return null;
-
-      // ⭐ If versions don't match → session invalid → logout
-      if ((currentUser.tokenVersion || 0) !== (token.tokenVersion || 0)) {
-        return null;
-      }
-
-      // Attach to session
+      // No DB query → all trust comes from JWT
       session.user.id = token.id;
-      session.user.image = token.picture;
       session.user.role = token.role;
+      session.user.image = token.picture;
+
+      // tokenVersion included but validated by middleware
+      session.user.tokenVersion = token.tokenVersion;
 
       return session;
     },

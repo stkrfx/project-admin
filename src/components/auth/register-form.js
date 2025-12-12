@@ -25,19 +25,19 @@ import {
 
 import { registerUser } from "@/actions/register";
 
-// ENFORCED PASSWORD SECURITY — strong & consistent with reset-password
+// ENFORCED PASSWORD SECURITY — consistent with reset-password
 const passwordRegex =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]).{8,}$/;
 
 const formSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
   email: z.string().email({ message: "Please enter a valid email address." }),
-
   password: z.string().regex(passwordRegex, {
     message:
       "Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special character.",
   }),
 });
+
 export default function RegisterForm() {
   const router = useRouter();
   const [loadingType, setLoadingType] = useState(null);
@@ -70,7 +70,7 @@ export default function RegisterForm() {
 
       if (result.error) {
         toast.error(result.error);
-        setLoadingType(null); 
+        setLoadingType(null);
         return;
       }
 
@@ -78,10 +78,13 @@ export default function RegisterForm() {
         toast.success("Account created!", {
           description: "Please verify your email address.",
         });
-        // Redirect and KEEP loading state true to prevent interactions
-        router.push(`/verify-email?email=${encodeURIComponent(values.email)}`);
-      }
 
+        // NEW FIX — encode email to avoid exposing raw value
+        const encoded = btoa(values.email.toLowerCase());
+
+        // Redirect while keeping loading state
+        router.push(`/verify-email?data=${encoded}`);
+      }
     } catch (error) {
       toast.error("Something went wrong. Please try again.");
       setLoadingType(null);
@@ -92,7 +95,6 @@ export default function RegisterForm() {
 
   return (
     <div className="w-full max-w-md space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
       <div className="flex flex-col items-center text-center space-y-2">
         <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-zinc-900 text-white shadow-lg mb-2">
           <Brain className="h-6 w-6" />
@@ -106,10 +108,10 @@ export default function RegisterForm() {
       </div>
 
       <div className="space-y-4">
-        <GoogleButton 
+        <GoogleButton
           onClick={handleGoogleSignUp}
           isLoading={loadingType === "google"}
-          disabled={isLoading} 
+          disabled={isLoading}
         />
 
         <div className="relative">
@@ -123,13 +125,15 @@ export default function RegisterForm() {
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            
+            {/* NAME */}
             <FormField
               control={form.control}
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-zinc-700 font-medium">Full Name</FormLabel>
+                  <FormLabel className="text-zinc-700 font-medium">
+                    Full Name
+                  </FormLabel>
                   <FormControl>
                     <div className="relative">
                       <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
@@ -146,12 +150,15 @@ export default function RegisterForm() {
               )}
             />
 
+            {/* EMAIL */}
             <FormField
               control={form.control}
               name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-zinc-700 font-medium">Email</FormLabel>
+                  <FormLabel className="text-zinc-700 font-medium">
+                    Email
+                  </FormLabel>
                   <FormControl>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
@@ -168,12 +175,15 @@ export default function RegisterForm() {
               )}
             />
 
+            {/* PASSWORD */}
             <FormField
               control={form.control}
               name="password"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-zinc-700 font-medium">Password</FormLabel>
+                  <FormLabel className="text-zinc-700 font-medium">
+                    Password
+                  </FormLabel>
                   <FormControl>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
@@ -203,6 +213,7 @@ export default function RegisterForm() {
               )}
             />
 
+            {/* SUBMIT */}
             <Button
               type="submit"
               className="w-full h-11 bg-zinc-900 hover:bg-zinc-800 text-white font-medium shadow-lg"
