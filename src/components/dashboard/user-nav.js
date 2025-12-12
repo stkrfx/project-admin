@@ -21,10 +21,10 @@ import { UserAvatar } from "@/components/ui/user-avatar";
 
 export function UserNav({ user: initialUser }) {
   const router = useRouter();
-  const { data: session } = useSession(); // ⭐ LIVE SESSION DATA
+  const { data: session } = useSession();
 
-  // ⭐ Prefer session user → falls back to header user
-  const user = session?.user || initialUser;
+  // ⭐ Prefer *fresh DB user* (from Header) → fallback to session user (may be stale)
+  const user = initialUser || session?.user;
 
   const handleLogout = async () => {
     toast.info("Signing out...");

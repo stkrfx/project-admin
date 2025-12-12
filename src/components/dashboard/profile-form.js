@@ -116,13 +116,16 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
   }, [initialData]);
 
   const user = initialData.user || {};
+const draft = initialData.draft || {};
 
-  // ----------------------------
-  // 3. CONTROLLED STATE
-  // ----------------------------
-  const [userName, setUserName] = useState(user.name || "");
-  const [userUsername, setUserUsername] = useState(user.username || "");
-  const [userImage, setUserImage] = useState(user.image || "");
+// ----------------------------
+// 3. CONTROLLED STATE
+// ----------------------------
+
+// Prefer DRAFT values → fallback to LIVE user values
+const [userName, setUserName] = useState(draft.name || user.name || "");
+const [userUsername, setUserUsername] = useState(draft.username || user.username || "");
+const [userImage, setUserImage] = useState(draft.image || user.image || "");
 
   const [bio, setBio] = useState(expert.bio || "");
   const [specialization, setSpecialization] = useState(

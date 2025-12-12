@@ -184,15 +184,15 @@ export async function updateProfile(prevState, formData) {
     }
 
     /* -------------------------------------------------------------------------
-     * ⭐ CRITICAL FIX — SYNC MAIN USER RECORD
-     * (Name, username, profile picture)
-     * -------------------------------------------------------------------------
-     */
-    await User.findByIdAndUpdate(session.user.id, {
-      name: data.name,
-      username: data.username,
-      image: formData.get("image"),
-    });
+ * [REMOVED] STOP SYNCING MAIN USER RECORD
+ * Identity changes will remain in draft until admin approval
+ * -------------------------------------------------------------------------
+ */
+// await User.findByIdAndUpdate(session.user.id, {
+//   name: data.name,
+//   username: data.username,
+//   image: formData.get("image"),
+// });
 
     /* -------------------------------------------------------------------------
      * PREPARE PAYLOAD FOR DRAFT-BASED PROFILE UPDATE
