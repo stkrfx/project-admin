@@ -68,21 +68,23 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
       Array.isArray(d)
         ? d
         : typeof d === "string"
-        ? [{ ...def, title: d }]
-        : [];
+          ? [{ ...def, title: d }]
+          : [];
 
     const live = initialData || {};
     const draft = initialData.draft || {};
 
-    const pendingSchedule =
-      live.futureAvailability?.schedule?.length > 0
-        ? live.futureAvailability.schedule
-        : null;
+    // Fix: Use validFrom instead of checking array length
+    // If validFrom exists, the user has submitted a new schedule (even if empty)
+    const hasPendingUpdate = !!live.futureAvailability?.validFrom;
 
-    const pendingLeaves =
-      live.futureAvailability?.leaves?.length > 0
-        ? live.futureAvailability.leaves
-        : null;
+    const pendingSchedule = hasPendingUpdate
+      ? live.futureAvailability.schedule
+      : null;
+
+    const pendingLeaves = hasPendingUpdate
+      ? live.futureAvailability.leaves
+      : null;
 
     return {
       ...live,
@@ -265,7 +267,7 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
   return (
     <form onSubmit={onSubmit}>
       <Tabs value={currentTab} onValueChange={handleTabChange} className="w-full pb-32">
-        
+
         {/* Header */}
         <div className="sticky top-20 z-40 w-full max-w-5xl mx-auto rounded-full border border-zinc-200/80 bg-white/80 backdrop-blur-md shadow-sm mt-0 mb-8">
           <div className="px-2 h-14 flex items-center justify-between w-full">

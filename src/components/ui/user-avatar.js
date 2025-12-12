@@ -14,7 +14,9 @@ export function UserAvatar({ user, className, ...props }) {
     : "U";
 
   // Check if image is valid (ignore ui-avatars)
-  const isValidImage = user?.image && !user.image.includes("ui-avatars.com") && !imageError;
+  // Check if image is valid (allow ui-avatars)
+const isValidImage = user?.image && !imageError;
+
 
   return (
     <Avatar className={className} {...props}>
