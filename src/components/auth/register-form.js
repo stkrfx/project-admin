@@ -79,11 +79,10 @@ export default function RegisterForm() {
           description: "Please verify your email address.",
         });
 
-        // NEW FIX — encode email to avoid exposing raw value
-        const encoded = btoa(values.email.toLowerCase());
+        // FIX → send raw email param
+        const emailParam = encodeURIComponent(values.email.toLowerCase());
 
-        // Redirect while keeping loading state
-        router.push(`/verify-email?data=${encoded}`);
+        router.push(`/verify-email?email=${emailParam}`);
       }
     } catch (error) {
       toast.error("Something went wrong. Please try again.");

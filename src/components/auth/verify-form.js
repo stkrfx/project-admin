@@ -37,17 +37,28 @@ const verifySchema = z.object({
 export default function VerifyForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const email = searchParams.get("email");
+
+  // Accept both email= and data= (base64) from URL
+  let emailParam = searchParams.get("email");
+  const encoded = searchParams.get("data");
+
+  if (!emailParam && encoded) {
+    try {
+      emailParam = atob(encoded);
+    } catch {
+      emailParam = null;
+    }
+  }
+
+  const email = emailParam;
 
   const [isLoading, setIsLoading] = useState(false);
-  // [!code ++] Cooldown State (Visual Feedback)
   const [countdown, setCountdown] = useState(0);
 
-  const maskedEmail = email 
-    ? email.replace(/^(.{2})(.*)(@.*)$/, (_, a, b, c) => a + "*".repeat(b.length) + c) 
+  const maskedEmail = email
+    ? email.replace(/^(.{2})(.*)(@.*)$/, (_, a, b, c) => a + "*".repeat(b.length) + c)
     : "your email";
 
-  // [!code ++] Cooldown Timer Logic
   useEffect(() => {
     let timer;
     if (countdown > 0) {
@@ -63,28 +74,27 @@ export default function VerifyForm() {
 
   async function onResend() {
     if (countdown > 0) return;
-    if (!email) {
-        toast.error("Missing email address.");
-        return;
-    }
-    
-    setIsLoading(true); 
-    try {
-        const result = await resendOtp(email);
 
-        if (result.error) {
-            toast.error("Resend Failed", { description: result.error });
-            // Optional: Set a short cooldown on error to prevent spamming
-            // setCountdown(10); 
-        } else {
-            toast.success("Code resent!", { description: "Check your inbox." });
-            // [!code ++] Trigger 60s cooldown on success
-            setCountdown(60); 
-        }
-    } catch (error) {
-        toast.error("Failed to resend code.");
+    if (!email) {
+      toast.error("Missing email address.");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const result = await resendOtp(email);
+
+      if (result.error) {
+        toast.error("Resend Failed", { description: result.error });
+      } else {
+        toast.success("Code resent!", { description: "Check your inbox." });
+        setCountdown(60);
+      }
+    } catch {
+      toast.error("Failed to resend code.");
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   }
 
@@ -102,12 +112,17 @@ export default function VerifyForm() {
         redirect: false,
         email: email,
         otp: values.otp,
+        type: "otp", // ⭐ FIX ADDED
       });
 
       if (res?.error) {
         toast.error("Verification Failed", {
-            description: res.error === "Invalid OTP" ? "Incorrect code. Please try again." : res.error
+          description:
+            res.error === "Invalid OTP"
+              ? "Incorrect code. Please try again."
+              : res.error,
         });
+
         form.reset();
         setIsLoading(false);
         return;
@@ -117,10 +132,9 @@ export default function VerifyForm() {
         description: "Welcome to Mindnamo.",
       });
 
-      router.push("/"); 
+      router.push("/");
       router.refresh();
-
-    } catch (error) {
+    } catch {
       toast.error("Something went wrong. Please try again.");
       setIsLoading(false);
     }
@@ -128,7 +142,6 @@ export default function VerifyForm() {
 
   return (
     <div className="w-full max-w-md space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
       <div className="flex flex-col items-center text-center space-y-2">
         <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-zinc-900 text-white shadow-lg mb-2">
           <Brain className="h-6 w-6" />
@@ -137,12 +150,16 @@ export default function VerifyForm() {
           Verify your email
         </h1>
         <p className="text-sm text-zinc-500 max-w-xs">
-          Enter the 6-digit code sent to <span className="font-medium text-zinc-900">{maskedEmail}</span>
+          Enter the 6-digit code sent to{" "}
+          <span className="font-medium text-zinc-900">{maskedEmail}</span>
         </p>
       </div>
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 flex flex-col items-center">
+        <form
+          onSubmit={form.handleSubmit(onSubmit)}
+          className="space-y-6 flex flex-col items-center"
+        >
           <FormField
             control={form.control}
             name="otp"
@@ -150,8 +167,8 @@ export default function VerifyForm() {
               <FormItem>
                 <FormLabel className="sr-only">One-Time Password</FormLabel>
                 <FormControl>
-                  <InputOTP 
-                    maxLength={6} 
+                  <InputOTP
+                    maxLength={6}
                     pattern={REGEXP_ONLY_DIGITS}
                     disabled={isLoading}
                     {...field}
@@ -162,7 +179,9 @@ export default function VerifyForm() {
                       <InputOTPSlot index={1} className="h-12 w-12 text-lg" />
                       <InputOTPSlot index={2} className="h-12 w-12 text-lg" />
                     </InputOTPGroup>
+
                     <InputOTPSeparator />
+
                     <InputOTPGroup>
                       <InputOTPSlot index={3} className="h-12 w-12 text-lg" />
                       <InputOTPSlot index={4} className="h-12 w-12 text-lg" />
@@ -170,9 +189,11 @@ export default function VerifyForm() {
                     </InputOTPGroup>
                   </InputOTP>
                 </FormControl>
+
                 <FormDescription className="text-xs text-center">
                   Entering the code will automatically verify and log you in.
                 </FormDescription>
+
                 <FormMessage />
               </FormItem>
             )}
@@ -195,29 +216,28 @@ export default function VerifyForm() {
       </Form>
 
       <div className="text-center text-sm text-zinc-500">
-        Didn&apos;t receive code?{" "}
+        Didn’t receive the code?{" "}
         <button
           type="button"
           onClick={onResend}
-          // [!code ++] Disable button during cooldown
           disabled={isLoading || countdown > 0}
           className={cn(
             "font-semibold text-zinc-900 hover:underline hover:text-zinc-700 transition-colors",
-            (isLoading || countdown > 0) && "opacity-50 cursor-not-allowed no-underline"
+            (isLoading || countdown > 0) &&
+              "opacity-50 cursor-not-allowed no-underline"
           )}
         >
-          {/* [!code ++] Visual Feedback: Show remaining seconds */}
           {countdown > 0 ? `Resend in ${countdown}s` : "Resend"}
         </button>
       </div>
-      
+
       <div className="text-center">
-         <button 
-            onClick={() => router.push("/register")}
-            className="text-xs text-zinc-400 hover:text-zinc-600 transition-colors"
-         >
-            Wrong email? Change address
-         </button>
+        <button
+          onClick={() => router.push("/register")}
+          className="text-xs text-zinc-400 hover:text-zinc-600 transition-colors"
+        >
+          Wrong email? Change address
+        </button>
       </div>
     </div>
   );

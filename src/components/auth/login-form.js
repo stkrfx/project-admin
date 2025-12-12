@@ -31,9 +31,9 @@ const formSchema = z.object({
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/"; // UX: Respect user's destination
-  
-  const [loadingType, setLoadingType] = useState(null); 
+  const callbackUrl = searchParams.get("callbackUrl") || "/";
+
+  const [loadingType, setLoadingType] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
 
   const form = useForm({
@@ -62,21 +62,19 @@ export default function LoginForm() {
         redirect: false,
         email: values.email,
         password: values.password,
-        // We do NOT pass callbackUrl here because redirect is false. 
-        // We handle navigation manually on success.
+        type: "password", // ⭐ FIX ADDED
       });
 
       if (res?.error) {
-        // UX: Show specific error from server (e.g., "Please verify your email first")
         toast.error("Login Failed", {
           description: res.error || "Invalid email or password.",
         });
-        setLoadingType(null); 
+        setLoadingType(null);
       } else {
         toast.success("Welcome back!", {
           description: "Logged in successfully.",
         });
-        router.push(callbackUrl); 
+        router.push(callbackUrl);
         router.refresh();
       }
     } catch (error) {
@@ -91,7 +89,6 @@ export default function LoginForm() {
 
   return (
     <div className="w-full max-w-md space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      
       <div className="flex flex-col items-center text-center space-y-2">
         <div className="flex items-center justify-center h-12 w-12 rounded-xl bg-zinc-900 text-white shadow-lg mb-2">
           <Brain className="h-6 w-6" />
@@ -105,10 +102,10 @@ export default function LoginForm() {
       </div>
 
       <div className="space-y-4">
-        <GoogleButton 
+        <GoogleButton
           onClick={handleGoogleSignIn}
           isLoading={loadingType === "google"}
-          disabled={isLoading} 
+          disabled={isLoading}
         />
 
         <div className="relative">
@@ -122,6 +119,7 @@ export default function LoginForm() {
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            {/* Email Field */}
             <FormField
               control={form.control}
               name="email"
@@ -144,6 +142,7 @@ export default function LoginForm() {
               )}
             />
 
+            {/* Password Field */}
             <FormField
               control={form.control}
               name="password"
@@ -151,8 +150,8 @@ export default function LoginForm() {
                 <FormItem>
                   <div className="flex items-center justify-between">
                     <FormLabel className="text-zinc-700 font-medium">Password</FormLabel>
-                    <Link 
-                      href="/forgot-password" 
+                    <Link
+                      href="/forgot-password"
                       className={cn(
                         "text-xs font-medium text-zinc-500 hover:text-zinc-900 hover:underline transition-colors",
                         isLoading && "pointer-events-none opacity-50"
@@ -161,7 +160,7 @@ export default function LoginForm() {
                       Forgot password?
                     </Link>
                   </div>
-                  
+
                   <FormControl>
                     <div className="relative">
                       <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
@@ -186,11 +185,13 @@ export default function LoginForm() {
                       </button>
                     </div>
                   </FormControl>
+
                   <FormMessage />
                 </FormItem>
               )}
             />
 
+            {/* Submit Button */}
             <Button
               type="submit"
               className="w-full h-11 bg-zinc-900 hover:bg-zinc-800 text-white font-medium shadow-lg shadow-zinc-900/10 transition-all duration-200"

@@ -11,42 +11,56 @@ import { otpRateLimit } from "@/lib/limiter";
 import { generateSecureOtp } from "@/lib/utils";
 import mongoose from "mongoose";
 
+/* -------------------------- SCHEMA -------------------------- */
 const registerSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(6),
 });
 
+/* -------------------------- ANTI-TIMING FUNCTION -------------------------- */
+async function fakeWork() {
+  await bcrypt.hash("dummy_password_!@#$", 10); // simulate bcrypt work
+  await new Promise((res) => setTimeout(res, 10 + Math.random() * 30)); // jitter
+}
+
+/* -------------------------- REGISTER USER -------------------------- */
 export async function registerUser(values) {
   try {
+    /* -------------------------- VALIDATION -------------------------- */
     const validated = registerSchema.safeParse(values);
     if (!validated.success) return { error: "Invalid fields!" };
 
     let { name, email, password } = validated.data;
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Rate limit
+    /* -------------------------- RATE LIMIT -------------------------- */
     const { success } = await otpRateLimit.limit(normalizedEmail);
-    if (!success) return { error: "Too many attempts. Wait 10 minutes." };
+    if (!success)
+      return { error: "Too many attempts. Wait 10 minutes." };
 
     await connectDB();
 
+    /* -------------------------- FIND EXISTING USER -------------------------- */
     const existingUser = await User.findOne({
       email: normalizedEmail,
       role: "expert",
     });
 
-    /* -----------------------------------------------------------
-     * Anti-enumeration: Never expose user existence
-     * ----------------------------------------------------------- */
+    /* ---------------------------------------------------------------
+     * CASE A — USER EXISTS & VERIFIED
+     * DO NOT reveal existence → do fake work to match timing
+     * --------------------------------------------------------------- */
     if (existingUser && existingUser.isVerified) {
+      await fakeWork();
       return {
-        success: "If an account exists, a verification code has been sent.",
+        success:
+          "If an account exists, a verification code has been sent.",
         email: normalizedEmail,
       };
     }
 
-    // Build OTP + password hash
+    /* -------------------------- PREP OTP + PASSWORD -------------------------- */
     const otp = generateSecureOtp(6);
     const otpHash = await bcrypt.hash(otp, 10);
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
@@ -55,21 +69,36 @@ export async function registerUser(values) {
     let userRecord = existingUser;
     let mustSendEmailAfterCommit = false;
 
-    /* -----------------------------------------------------------
-     * CASE 1 → Update unverified user silently
-     * ----------------------------------------------------------- */
+    /* ---------------------------------------------------------------
+     * CASE B — USER EXISTS BUT NOT VERIFIED
+     * 🔥 ATOMIC UPDATE FIX (secure)
+     * --------------------------------------------------------------- */
     if (existingUser && !existingUser.isVerified) {
-      existingUser.name = name;
-      existingUser.password = hashedPassword;
-      existingUser.otp = otpHash;
-      existingUser.otpExpiry = otpExpiry;
-      await existingUser.save();
-      mustSendEmailAfterCommit = true; // will send later
+      const updatedUser = await User.findOneAndUpdate(
+        {
+          _id: existingUser._id,
+          isVerified: false, // CONDITIONAL: only update if still unverified
+        },
+        {
+          $set: {
+            name: name,
+            password: hashedPassword,
+            otp: otpHash,
+            otpExpiry: otpExpiry,
+          },
+        },
+        { new: true }
+      );
+
+      if (updatedUser) {
+        userRecord = updatedUser;
+        mustSendEmailAfterCommit = true;
+      }
     }
 
-    /* -----------------------------------------------------------
-     * CASE 2 → CREATE NEW USER IN TRANSACTION
-     * ----------------------------------------------------------- */
+    /* ---------------------------------------------------------------
+     * CASE C — NEW USER → CREATE IN TRANSACTION
+     * --------------------------------------------------------------- */
     if (!existingUser) {
       const session = await mongoose.startSession();
       session.startTransaction();
@@ -96,12 +125,11 @@ export async function registerUser(values) {
 
         userRecord = newUser[0];
 
-        await ExpertProfile.create([{ user: userRecord._id }], { session });
+        await ExpertProfile.create(
+          [{ user: userRecord._id }],
+          { session }
+        );
 
-        // IMPORTANT FIX:
-        // -------------------------------------------------------
-        // COMMIT FIRST → release DB locks BEFORE sending email
-        // -------------------------------------------------------
         await session.commitTransaction();
         session.endSession();
 
@@ -114,9 +142,7 @@ export async function registerUser(values) {
       }
     }
 
-    /* -----------------------------------------------------------
-     * SEND EMAIL AFTER DB COMMIT (Non-blocking)
-     * ----------------------------------------------------------- */
+    /* -------------------------- SEND OTP (AFTER COMMIT) -------------------------- */
     if (mustSendEmailAfterCommit) {
       try {
         await sendOtpEmail(normalizedEmail, otp);
@@ -124,14 +150,19 @@ export async function registerUser(values) {
         console.error("Email failed after commit:", emailError);
 
         return {
-          success: "Account created, but email failed. Please use Resend OTP.",
+          success:
+            "Account created, but email failed. Please use Resend OTP.",
           email: normalizedEmail,
         };
       }
     }
 
+    /* ---------------------------------------------------------------
+     * FINAL RESPONSE (ANTI-ENUMERATION)
+     * --------------------------------------------------------------- */
     return {
-      success: "If an account exists, a verification code has been sent.",
+      success:
+        "If an account exists, a verification code has been sent.",
       email: normalizedEmail,
     };
   } catch (err) {

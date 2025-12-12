@@ -18,11 +18,18 @@ export default async function middleware(req) {
   const { pathname } = req.nextUrl;
 
   /* -------------------------------------------------------------
-   * ⭐ FIXED: REAL IP DETECTION (stops rate limit bypass)
+   * ⭐ FIXED: SECURE REAL IP DETECTION (prevents spoofing)
+   *
+   * Priority:
+   * 1. req.ip               → trusted by Vercel/Next.js runtime
+   * 2. x-real-ip            → set by Nginx / Cloudflare / proxies
+   * 3. x-forwarded-for      → fallback, first IP only
+   * 4. localhost fallback
    * ------------------------------------------------------------- */
   const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.ip ||
+    req.headers.get("x-real-ip") ||
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     "127.0.0.1";
 
   /* -------------------------------------------------------------
@@ -31,7 +38,7 @@ export default async function middleware(req) {
   const publicRateLimited = ["/api", "/login", "/register"];
 
   if (publicRateLimited.some((p) => pathname.startsWith(p))) {
-    const { success, limit, reset, remaining } = await ratelimit.limit(ip);
+    const { success, limit, remaining, reset } = await ratelimit.limit(ip);
 
     if (!success) {
       return new NextResponse("Too Many Requests", {
@@ -54,8 +61,8 @@ export default async function middleware(req) {
     "/verify-email",
     "/forgot-password",
     "/reset-password",
-    "/api/public",     
-    "/api/webhook",    
+    "/api/public",
+    "/api/webhook",
   ];
 
   const isPublicRoute = publicRoutes.some((route) =>
@@ -71,7 +78,7 @@ export default async function middleware(req) {
   });
 
   /* -------------------------------------------------------------
-   * 4. DEFAULT-DENY FOR API ROUTES (SAFER)
+   * 4. PROTECT PRIVATE API ROUTES
    * ------------------------------------------------------------- */
   if (pathname.startsWith("/api")) {
     const apiIsPublic = publicRoutes.some((r) => pathname.startsWith(r));

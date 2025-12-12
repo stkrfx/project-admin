@@ -9,30 +9,31 @@ export const metadata = {
 export default async function VerifyEmailPage({ searchParams }) {
   const params = await searchParams;
 
-  // NEW — Decode email safely
   let email = null;
 
   try {
-    if (params?.data) {
-      // Base64 decode (from register redirect)
-      email = atob(params.data)?.trim()?.toLowerCase();
-    } else if (params?.email) {
-      // Backward compatibility (older URLs)
+    // ✅ Primary (new flow)
+    if (params?.email) {
       email = params.email.trim().toLowerCase();
     }
+    // ✅ Legacy fallback support — safer than atob()
+    else if (params?.data) {
+      email = Buffer.from(params.data, "base64")
+        .toString("utf8")
+        .trim()
+        .toLowerCase();
+    }
   } catch (err) {
-    // Bad or tampered Base64 → block access
+    // Invalid encoding → Block access
     return redirect("/register");
   }
 
-  // PAGE-LEVEL GUARD
-  if (!email) {
-    return redirect("/register");
-  }
+  // PAGE LEVEL GUARD
+  if (!email) return redirect("/register");
 
   return (
     <div className="flex min-h-dvh w-full bg-white">
-      {/* Left Side - Visuals */}
+      {/* Left Side */}
       <div className="hidden lg:flex w-1/2 bg-zinc-950 items-center justify-center relative overflow-hidden">
         <div
           className="absolute inset-0 opacity-40 mix-blend-overlay bg-cover bg-center"
@@ -58,7 +59,7 @@ export default async function VerifyEmailPage({ searchParams }) {
         </div>
       </div>
 
-      {/* Right Side - Form */}
+      {/* Right Side */}
       <div className="flex w-full lg:w-1/2 items-center justify-center p-8 py-12 lg:p-16">
         <VerifyForm email={email} />
       </div>
