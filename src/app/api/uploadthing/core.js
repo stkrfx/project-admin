@@ -8,72 +8,53 @@ import User from "@/models/User";
 const f = createUploadthing();
 
 /* ---------------------------------------------------------
- * AUTH MIDDLEWARE — now fully secure
+ * AUTH MIDDLEWARE — Now Safe & UploadThing-Compatible
  * --------------------------------------------------------- */
 const handleAuth = async () => {
-  const session = await getServerSession(authOptions);
+  try {
+    const session = await getServerSession(authOptions);
 
-  // 1) Must have valid session
-  if (!session || !session.user) {
-    throw new Error("Unauthorized");
+    if (!session || !session.user) {
+      throw new Error("Unauthorized");
+    }
+
+    await connectDB();
+    const user = await User.findById(session.user.id).select("isVerified isBanned");
+
+    if (!user || user.isBanned || !user.isVerified) {
+      throw new Error("Unauthorized: Account restricted");
+    }
+
+    return { userId: session.user.id };
+
+  } catch (error) {
+    // ⭐ CRITICAL FIX — Prevent UploadThing Thread Crash
+    console.error("UploadThing Auth Failed:", error.message);
+
+    // ❗ MUST rethrow for UploadThing to gracefully respond with 403
+    throw new Error(error.message);
   }
-
-  // 2) Validate user against DB (prevents abuse)
-  await connectDB();
-  const user = await User.findById(session.user.id).select("isVerified isBanned");
-
-  if (!user || user.isBanned || !user.isVerified) {
-    throw new Error("Unauthorized: Account not allowed to upload files.");
-  }
-
-  return { userId: session.user.id };
 };
+
 
 /* ---------------------------------------------------------
  * UPLOAD ROUTERS
  * --------------------------------------------------------- */
 export const ourFileRouter = {
-  /* -------------------------------------------
-   * 1. Profile Picture Upload
-   * ------------------------------------------- */
-  profilePicture: f({
-    image: { maxFileSize: "4MB", maxFileCount: 1 },
-  })
+  profilePicture: f({ image: { maxFileSize: "4MB", maxFileCount: 1 } })
     .middleware(async () => await handleAuth())
     .onUploadComplete(async ({ metadata, file }) => {
-      console.log(
-        "Profile Pic Uploaded by:",
-        metadata.userId,
-        "URL:",
-        file.url
-      );
-
-      return {
-        uploadedBy: metadata.userId,
-        url: file.url,
-      };
+      console.log("Uploaded by:", metadata.userId, "URL:", file.url);
+      return { uploadedBy: metadata.userId, url: file.url };
     }),
 
-  /* -------------------------------------------
-   * 2. Expert Document Upload (PDF + Images)
-   * ------------------------------------------- */
   expertDocument: f({
     image: { maxFileSize: "8MB", maxFileCount: 1 },
     pdf: { maxFileSize: "8MB", maxFileCount: 1 },
   })
     .middleware(async () => await handleAuth())
     .onUploadComplete(async ({ metadata, file }) => {
-      console.log(
-        "Document Uploaded by:",
-        metadata.userId,
-        "URL:",
-        file.url
-      );
-
-      return {
-        uploadedBy: metadata.userId,
-        url: file.url,
-        name: file.name,
-      };
+      console.log("Document uploaded by:", metadata.userId, "URL:", file.url);
+      return { uploadedBy: metadata.userId, url: file.url, name: file.name };
     }),
 };

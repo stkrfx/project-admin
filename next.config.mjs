@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   /* config options here */
-  reactCompiler: true,
+  //reactCompiler: true,
   experimental: {
     serverActions: {
       allowedOrigins: ["*.cloudworkstations.dev", "localhost:3000"],
