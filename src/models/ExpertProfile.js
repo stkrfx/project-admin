@@ -6,7 +6,7 @@ import mongoose, { Schema } from "mongoose";
 const DocumentSchema = new Schema(
   {
     title: { type: String, required: true, trim: true },
-    category: { type: String, required: true }, // "Degree", "License"
+    category: { type: String, required: true }, // Degree, License, Certificate
     url: { type: String, required: true },
     fileType: { type: String, enum: ["image", "pdf"], required: true },
     fileSize: { type: String },
@@ -14,24 +14,22 @@ const DocumentSchema = new Schema(
   { _id: false }
 );
 
-// Services (video, clinic, chat, phone)
+// Services (Hybrid pricing: video + clinic)
 const ServiceSchema = new Schema(
   {
     name: { type: String, required: true, trim: true },
     duration: { type: Number, required: true, min: 15 },
-    type: {
-      type: String,
-      enum: ["video", "clinic", "chat", "phone"],
-      required: true,
-    },
-    price: { type: Number, required: true, min: 0 },
+
+    videoPrice: { type: Number, min: 0, default: null },
+    clinicPrice: { type: Number, min: 0, default: null },
+
     currency: { type: String, default: "AUD" },
     description: { type: String, maxlength: 500 },
   },
   { _id: false }
 );
 
-// Work history (structured)
+// Work history
 const WorkHistorySchema = new Schema(
   {
     company: { type: String, required: true, trim: true },
@@ -45,7 +43,7 @@ const WorkHistorySchema = new Schema(
   { _id: false }
 );
 
-// Education (structured)
+// Education
 const EducationSchema = new Schema(
   {
     institution: { type: String, required: true, trim: true },
@@ -62,8 +60,8 @@ const EducationSchema = new Schema(
 const AvailabilitySlotSchema = new Schema(
   {
     dayOfWeek: { type: String, required: true },
-    startTime: { type: String, required: true },
-    endTime: { type: String, required: true },
+    startTime: { type: String, required: true }, // HH:mm
+    endTime: { type: String, required: true },   // HH:mm
   },
   { _id: false }
 );
@@ -100,7 +98,11 @@ const ExpertProfileSchema = new mongoose.Schema(
     location: { type: String, trim: true, default: "" },
     timezone: { type: String, default: "Australia/Sydney" },
     languages: { type: [String], default: [] },
-    socialLinks: { linkedin: String, twitter: String, website: String },
+    socialLinks: {
+      linkedin: String,
+      twitter: String,
+      website: String,
+    },
 
     // -------------------- PROFESSIONAL --------------------
     specialization: { type: String, trim: true, default: "", index: true },
@@ -109,7 +111,7 @@ const ExpertProfileSchema = new mongoose.Schema(
     workHistory: { type: [WorkHistorySchema], default: [] },
     education: { type: [EducationSchema], default: [] },
 
-    // Auto-calculated fields
+    // Auto-calculated
     experienceYears: { type: Number, min: 0, default: 0 },
     latestEducation: { type: String, default: "" },
 
@@ -122,31 +124,34 @@ const ExpertProfileSchema = new mongoose.Schema(
     availability: { type: [AvailabilitySlotSchema], default: [] },
     leaves: { type: [LeaveSchema], default: [] },
 
-    // Schedule that activates automatically next day
     futureAvailability: {
       schedule: { type: [AvailabilitySlotSchema], default: [] },
       leaves: { type: [LeaveSchema], default: [] },
       validFrom: { type: Date, default: null },
     },
 
-    // -------------------- DRAFT (For Admin Review) --------------------
+    // -------------------- DRAFT (Admin Review) --------------------
     draft: {
-      // Identity in draft also (new requirement)
       name: String,
       username: String,
       image: String,
-
       bio: String,
       specialization: String,
       timezone: String,
       gender: String,
 
+      // ✅ FIX: Added missing location
+      location: String,
+
       languages: [String],
       tags: [String],
       workHistory: [WorkHistorySchema],
       education: [EducationSchema],
-
-      socialLinks: { linkedin: String, twitter: String, website: String },
+      socialLinks: {
+        linkedin: String,
+        twitter: String,
+        website: String,
+      },
       documents: [DocumentSchema],
       services: [ServiceSchema],
     },
@@ -159,28 +164,44 @@ const ExpertProfileSchema = new mongoose.Schema(
 
     // -------------------- OTHER --------------------
     documents: { type: [DocumentSchema], default: [] },
-
     isOnline: { type: Boolean, default: false, index: true },
     lastSeen: { type: Date, default: Date.now },
-
     rating: { type: Number, default: 0 },
     reviewCount: { type: Number, default: 0 },
   },
-  { timestamps: true, collection: "expert_profiles" }
+  {
+    timestamps: true,
+    collection: "expert_profiles",
+  }
 );
 
 // -------------------- PRE-SAVE HOOK --------------------
+
 ExpertProfileSchema.pre("save", function (next) {
-  // Calculate price + modes
+  // Calculate starting price + consultation modes
   if (this.services?.length) {
-    this.startingPrice = Math.min(...this.services.map((s) => s.price));
-    this.consultationModes = [...new Set(this.services.map((s) => s.type))];
+    const prices = [];
+    const modes = new Set();
+
+    this.services.forEach((s) => {
+      if (s.videoPrice != null && s.videoPrice > 0) {
+        prices.push(s.videoPrice);
+        modes.add("video");
+      }
+      if (s.clinicPrice != null && s.clinicPrice > 0) {
+        prices.push(s.clinicPrice);
+        modes.add("clinic");
+      }
+    });
+
+    this.startingPrice = prices.length ? Math.min(...prices) : 0;
+    this.consultationModes = Array.from(modes);
   } else {
     this.startingPrice = 0;
     this.consultationModes = [];
   }
 
-  // Auto calculate years of experience
+  // Calculate experience years
   if (this.workHistory?.length) {
     const earliest = this.workHistory.reduce(
       (min, job) => (job.startDate < min ? job.startDate : min),
@@ -195,7 +216,7 @@ ExpertProfileSchema.pre("save", function (next) {
     this.experienceYears = Math.max(0, Math.floor(months / 12));
   }
 
-  // Auto derive "latest education"
+  // Latest education
   if (this.education?.length) {
     const sorted = [...this.education].sort((a, b) => {
       const endA = a.current ? new Date() : new Date(a.endDate || 0);
