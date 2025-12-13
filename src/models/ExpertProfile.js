@@ -6,7 +6,7 @@ import mongoose, { Schema } from "mongoose";
 const DocumentSchema = new Schema(
   {
     title: { type: String, required: true, trim: true },
-    category: { type: String, required: true }, // Degree, License, Certificate
+    category: { type: String, required: true },
     url: { type: String, required: true },
     fileType: { type: String, enum: ["image", "pdf"], required: true },
     fileSize: { type: String },
@@ -56,12 +56,12 @@ const EducationSchema = new Schema(
   { _id: false }
 );
 
-// Weekly availability slots
+// Weekly availability
 const AvailabilitySlotSchema = new Schema(
   {
     dayOfWeek: { type: String, required: true },
-    startTime: { type: String, required: true }, // HH:mm
-    endTime: { type: String, required: true },   // HH:mm
+    startTime: { type: String, required: true },
+    endTime: { type: String, required: true },
   },
   { _id: false }
 );
@@ -98,11 +98,7 @@ const ExpertProfileSchema = new mongoose.Schema(
     location: { type: String, trim: true, default: "" },
     timezone: { type: String, default: "Australia/Sydney" },
     languages: { type: [String], default: [] },
-    socialLinks: {
-      linkedin: String,
-      twitter: String,
-      website: String,
-    },
+    socialLinks: { linkedin: String, twitter: String, website: String },
 
     // -------------------- PROFESSIONAL --------------------
     specialization: { type: String, trim: true, default: "", index: true },
@@ -111,7 +107,6 @@ const ExpertProfileSchema = new mongoose.Schema(
     workHistory: { type: [WorkHistorySchema], default: [] },
     education: { type: [EducationSchema], default: [] },
 
-    // Auto-calculated
     experienceYears: { type: Number, min: 0, default: 0 },
     latestEducation: { type: String, default: "" },
 
@@ -139,19 +134,13 @@ const ExpertProfileSchema = new mongoose.Schema(
       specialization: String,
       timezone: String,
       gender: String,
-
-      // ✅ FIX: Added missing location
       location: String,
 
       languages: [String],
       tags: [String],
       workHistory: [WorkHistorySchema],
       education: [EducationSchema],
-      socialLinks: {
-        linkedin: String,
-        twitter: String,
-        website: String,
-      },
+      socialLinks: { linkedin: String, twitter: String, website: String },
       documents: [DocumentSchema],
       services: [ServiceSchema],
     },
@@ -169,26 +158,23 @@ const ExpertProfileSchema = new mongoose.Schema(
     rating: { type: Number, default: 0 },
     reviewCount: { type: Number, default: 0 },
   },
-  {
-    timestamps: true,
-    collection: "expert_profiles",
-  }
+  { timestamps: true, collection: "expert_profiles" }
 );
 
 // -------------------- PRE-SAVE HOOK --------------------
 
 ExpertProfileSchema.pre("save", function (next) {
-  // Calculate starting price + consultation modes
+  // Calculate starting price & consultation modes
   if (this.services?.length) {
     const prices = [];
     const modes = new Set();
 
     this.services.forEach((s) => {
-      if (s.videoPrice != null && s.videoPrice > 0) {
+      if (s.videoPrice > 0) {
         prices.push(s.videoPrice);
         modes.add("video");
       }
-      if (s.clinicPrice != null && s.clinicPrice > 0) {
+      if (s.clinicPrice > 0) {
         prices.push(s.clinicPrice);
         modes.add("clinic");
       }
