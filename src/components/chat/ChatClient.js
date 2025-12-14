@@ -1,3 +1,9 @@
+/*
+ * File: src/components/chat/ChatClient.js
+ * ROLE: Expert / Admin Chat Client
+ * CONNECTS TO: External Mindnamo Socket Server
+ */
+
 "use client";
 
 import {
@@ -5,12 +11,14 @@ import {
   useEffect,
   useRef,
   useTransition,
+  useMemo,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import io from "socket.io-client";
+
+import { cn } from "@/lib/utils";
 import { getMessages } from "@/actions/chat";
 import { useUploadThing } from "@/lib/uploadthing";
-import { cn } from "@/lib/utils";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,21 +30,25 @@ import {
   Reply,
   X,
   FileText,
+  Clock,
+  CheckCheck,
 } from "lucide-react";
 
 /* -------------------------------------------------------
  * Helpers
  * ------------------------------------------------------- */
-const formatTime = (date) =>
-  new Date(date).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+const formatTime = (d) =>
+  d
+    ? new Date(d).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
 
 /* -------------------------------------------------------
  * Chat Client
  * ------------------------------------------------------- */
-export default function ChatClient({ initialConversations, user }) {
+export default function ChatClient({ initialConversations, currentUser }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("id");
@@ -46,9 +58,10 @@ export default function ChatClient({ initialConversations, user }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [replyTo, setReplyTo] = useState(null);
+  const [isTyping, setIsTyping] = useState(false);
   const [isPending, startTransition] = useTransition();
 
-  const scrollRef = useRef(null);
+  const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
   const { startUpload } = useUploadThing("chatAttachment");
@@ -56,210 +69,193 @@ export default function ChatClient({ initialConversations, user }) {
   const activeConvo = conversations.find((c) => c._id === selectedId);
 
   /* -------------------------------------------------------
-   * 1. SOCKET CONNECTION (EXTERNAL SERVER)
+   * 1. SOCKET CONNECTION (External Mindnamo Server)
    * ------------------------------------------------------- */
   useEffect(() => {
-    if (!user?.id) return;
+    if (!currentUser?.id) return;
 
     const socketUrl =
       process.env.NEXT_PUBLIC_SOCKET_SERVER_URL ||
-      "http://localhost:3000"; // Mindnamo server
+      "http://localhost:3000";
 
     const s = io(socketUrl, {
       path: "/api/socket_io",
-      query: {
-        userId: user.id,
-        role: "expert",
-      },
+      query: { userId: currentUser.id, role: "expert" },
       withCredentials: true,
       transports: ["websocket", "polling"],
     });
 
-    s.on("connect", () => {
-      console.log("✅ Connected to Mindnamo Socket Server");
-    });
-
-    s.on("connect_error", (err) => {
-      console.error("❌ Socket connection error:", err.message);
-    });
+    s.on("connect", () =>
+      console.log("✅ Connected to Mindnamo Socket")
+    );
 
     setSocket(s);
-
-    return () => {
-      s.disconnect();
-    };
-  }, [user?.id]);
+    return () => s.disconnect();
+  }, [currentUser?.id]);
 
   /* -------------------------------------------------------
-   * 2. LOAD MESSAGES
+   * 2. JOIN ROOM + LOAD MESSAGES
    * ------------------------------------------------------- */
   useEffect(() => {
-    if (!selectedId || !socket) return;
+    if (!socket || !selectedId) return;
 
     socket.emit("join_room", selectedId);
 
     startTransition(async () => {
-      const msgs = await getMessages(selectedId);
-      setMessages(msgs || []);
+      const history = await getMessages(selectedId);
+      setMessages(history || []);
     });
-  }, [selectedId, socket]);
+  }, [socket, selectedId]);
 
   /* -------------------------------------------------------
-   * 3. LISTEN FOR INCOMING MESSAGES
+   * 3. SOCKET EVENTS
    * ------------------------------------------------------- */
   useEffect(() => {
     if (!socket) return;
 
-    const handler = (msg) => {
+    const onReceiveMessage = (msg) => {
       if (msg.conversationId === selectedId) {
-        setMessages((prev) => [...prev, msg]);
+        setMessages((prev) => {
+          // Replace optimistic message
+          const idx = prev.findIndex(
+            (m) =>
+              m.status === "sending" &&
+              m.content === msg.content
+          );
+          if (idx !== -1) {
+            const clone = [...prev];
+            clone[idx] = { ...msg, status: "sent" };
+            return clone;
+          }
+          return [...prev, msg];
+        });
       }
+
+      // Sidebar update
+      setConversations((prev) =>
+        prev.map((c) =>
+          c._id === msg.conversationId
+            ? {
+                ...c,
+                lastMessage:
+                  msg.contentType === "text"
+                    ? msg.content
+                    : `Sent ${msg.contentType}`,
+                lastMessageAt: msg.createdAt,
+              }
+            : c
+        )
+      );
     };
 
-    socket.on("receive_message", handler);
+    const onTyping = ({ conversationId }) =>
+      conversationId === selectedId && setIsTyping(true);
+
+    const onStopTyping = ({ conversationId }) =>
+      conversationId === selectedId && setIsTyping(false);
+
+    socket.on("receive_message", onReceiveMessage);
+    socket.on("typing", onTyping);
+    socket.on("stopTyping", onStopTyping);
 
     return () => {
-      socket.off("receive_message", handler);
+      socket.off("receive_message", onReceiveMessage);
+      socket.off("typing", onTyping);
+      socket.off("stopTyping", onStopTyping);
     };
   }, [socket, selectedId]);
 
   /* -------------------------------------------------------
-   * 4. AUTO SCROLL
+   * 4. SEND MESSAGE
    * ------------------------------------------------------- */
-  useEffect(() => {
-    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  const sendMessage = (content, type = "text") => {
+    if (!content.trim() || !socket || !activeConvo) return;
 
-  /* -------------------------------------------------------
-   * ACTIONS
-   * ------------------------------------------------------- */
-  const sendMessage = async (content, type = "text") => {
-    if (!content.trim() && type === "text") return;
-    if (!socket || !selectedId || !activeConvo) return;
+    const optimistic = {
+      _id: "tmp-" + Date.now(),
+      conversationId: selectedId,
+      sender: currentUser.id,
+      senderModel: "Expert",
+      content,
+      contentType: type,
+      replyTo,
+      createdAt: new Date().toISOString(),
+      status: "sending",
+    };
+
+    setMessages((prev) => [...prev, optimistic]);
+    setInput("");
+    setReplyTo(null);
 
     socket.emit("send_message", {
       conversationId: selectedId,
-      senderId: user.id,
-      receiverId: activeConvo.otherUser?._id,
+      senderId: currentUser.id,
+      receiverId: activeConvo.otherUser._id,
       content,
       type,
       replyTo: replyTo?._id || null,
     });
-
-    setInput("");
-    setReplyTo(null);
   };
 
+  /* -------------------------------------------------------
+   * 5. FILE UPLOAD
+   * ------------------------------------------------------- */
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const res = await startUpload([file]);
-    if (!res?.[0]?.url) return;
+    const type = file.type.startsWith("image")
+      ? "image"
+      : "pdf";
 
-    const type = file.type.startsWith("image") ? "image" : "pdf";
-    sendMessage(res[0].url, type);
+    const res = await startUpload([file]);
+    if (res?.[0]?.url) {
+      sendMessage(res[0].url, type);
+    }
   };
 
   /* -------------------------------------------------------
-   * RENDER MESSAGE
+   * 6. AUTO SCROLL
    * ------------------------------------------------------- */
-  const renderMessage = (msg) => {
-    const isMe = msg.sender === user.id;
-
-    return (
-      <div
-        key={msg._id}
-        className={cn(
-          "flex w-full mt-2 max-w-3xl",
-          isMe ? "ml-auto justify-end" : ""
-        )}
-      >
-        <div className="relative group max-w-[75%]">
-          {msg.replyTo && (
-            <div className="text-xs mb-1 px-2 py-1 bg-zinc-100 rounded border-l-2 border-zinc-400">
-              Replying to:{" "}
-              {msg.replyTo.contentType === "text"
-                ? msg.replyTo.content.slice(0, 30)
-                : msg.replyTo.contentType}
-            </div>
-          )}
-
-          <div
-            className={cn(
-              "px-4 py-2 rounded-2xl text-sm shadow-sm",
-              isMe
-                ? "bg-zinc-900 text-white rounded-br-none"
-                : "bg-white border border-zinc-200 rounded-bl-none"
-            )}
-          >
-            {msg.contentType === "text" && <p>{msg.content}</p>}
-
-            {msg.contentType === "image" && (
-              <img
-                src={msg.content}
-                className="rounded-lg max-w-full mt-1"
-              />
-            )}
-
-            {msg.contentType === "pdf" && (
-              <a
-                href={msg.content}
-                target="_blank"
-                className="flex items-center gap-2 underline"
-              >
-                <FileText className="w-4 h-4" />
-                View Document
-              </a>
-            )}
-
-            {msg.contentType === "audio" && (
-              <audio controls src={msg.content} className="w-48" />
-            )}
-          </div>
-
-          <div
-            className={cn(
-              "flex items-center gap-2 mt-1 text-[10px] text-zinc-400",
-              isMe ? "justify-end" : ""
-            )}
-          >
-            <span>{formatTime(msg.createdAt)}</span>
-            <button
-              onClick={() => setReplyTo(msg)}
-              className="opacity-0 group-hover:opacity-100"
-            >
-              <Reply className="w-3 h-3" />
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+    });
+  }, [messages]);
 
   /* -------------------------------------------------------
    * UI
    * ------------------------------------------------------- */
   return (
-    <div className="flex h-[calc(100dvh-64px)] bg-zinc-50">
+    <div className="flex h-[calc(100dvh-64px)] bg-zinc-50 border-t">
+      <input
+        type="file"
+        hidden
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+      />
+
       {/* Sidebar */}
-      <div className="w-80 border-r bg-white flex flex-col">
-        <div className="p-4 border-b font-bold text-lg">
+      <div className="w-80 bg-white border-r hidden md:flex flex-col">
+        <div className="p-4 font-bold border-b">
           Messages
         </div>
-
         <div className="flex-1 overflow-y-auto">
           {conversations.map((c) => (
             <div
               key={c._id}
-              onClick={() => router.push(`/chat?id=${c._id}`)}
+              onClick={() =>
+                router.push(`/chat?id=${c._id}`)
+              }
               className={cn(
-                "p-4 cursor-pointer flex items-center gap-3 hover:bg-zinc-50",
+                "p-4 cursor-pointer flex gap-3 hover:bg-zinc-50",
                 selectedId === c._id && "bg-zinc-100"
               )}
             >
               <Avatar>
-                <AvatarImage src={c.otherUser?.image} />
+                <AvatarImage
+                  src={c.otherUser?.profilePicture}
+                />
                 <AvatarFallback>
                   {c.otherUser?.name?.[0]}
                 </AvatarFallback>
@@ -267,16 +263,16 @@ export default function ChatClient({ initialConversations, user }) {
 
               <div className="flex-1 min-w-0">
                 <h4 className="font-semibold text-sm truncate">
-                  {c.otherUser?.name || "Client"}
+                  {c.otherUser?.name}
                 </h4>
                 <p className="text-xs text-zinc-500 truncate">
-                  {c.lastMessage || "Start chatting..."}
+                  {c.lastMessage || "Start chatting"}
                 </p>
               </div>
 
-              {c.expertUnreadCount > 0 && (
-                <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">
-                  {c.expertUnreadCount}
+              {c.unreadCount > 0 && (
+                <span className="bg-zinc-900 text-white text-[10px] px-2 rounded-full">
+                  {c.unreadCount}
                 </span>
               )}
             </div>
@@ -284,59 +280,145 @@ export default function ChatClient({ initialConversations, user }) {
         </div>
       </div>
 
-      {/* Chat */}
+      {/* Chat Area */}
       <div className="flex-1 flex flex-col">
-        {selectedId ? (
+        {activeConvo ? (
           <>
-            <div className="h-16 border-b bg-white flex items-center px-6">
-              <Avatar className="h-8 w-8">
-                <AvatarImage src={activeConvo?.otherUser?.image} />
+            {/* Header */}
+            <div className="h-16 bg-white border-b flex items-center px-6 gap-3">
+              <Avatar>
+                <AvatarImage
+                  src={activeConvo.otherUser?.profilePicture}
+                />
               </Avatar>
-              <span className="ml-3 font-bold">
-                {activeConvo?.otherUser?.name}
-              </span>
+              <div>
+                <div className="font-bold text-sm">
+                  {activeConvo.otherUser?.name}
+                </div>
+                <div className="text-xs text-zinc-500">
+                  {isTyping
+                    ? "Typing..."
+                    : activeConvo.otherUser?.isOnline
+                    ? "Online"
+                    : "Offline"}
+                </div>
+              </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
-              {messages.map(renderMessage)}
-              <div ref={scrollRef} />
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {messages.map((msg) => {
+                const isMe =
+                  msg.sender === currentUser.id;
+
+                return (
+                  <div
+                    key={msg._id}
+                    className={cn(
+                      "flex",
+                      isMe
+                        ? "justify-end"
+                        : "justify-start"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "max-w-[70%] rounded-2xl px-4 py-2 text-sm shadow",
+                        isMe
+                          ? "bg-zinc-900 text-white rounded-br-none"
+                          : "bg-white border rounded-bl-none"
+                      )}
+                    >
+                      {msg.replyTo && (
+                        <div className="text-xs mb-1 opacity-70 border-l-2 pl-2">
+                          {msg.replyTo.content}
+                        </div>
+                      )}
+
+                      {msg.contentType === "text" && (
+                        <p>{msg.content}</p>
+                      )}
+
+                      {msg.contentType === "image" && (
+                        <img
+                          src={msg.content}
+                          className="rounded-lg"
+                        />
+                      )}
+
+                      {msg.contentType === "pdf" && (
+                        <a
+                          href={msg.content}
+                          target="_blank"
+                          className="underline flex items-center gap-1"
+                        >
+                          <FileText className="w-4 h-4" />
+                          Document
+                        </a>
+                      )}
+
+                      <div className="flex items-center gap-1 text-[10px] opacity-70 mt-1 justify-end">
+                        {formatTime(msg.createdAt)}
+                        {isMe &&
+                          (msg.status === "sending" ? (
+                            <Clock className="w-3 h-3" />
+                          ) : (
+                            <CheckCheck className="w-3 h-3" />
+                          ))}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setReplyTo(msg)}
+                      className="opacity-0 hover:opacity-100 ml-1"
+                    >
+                      <Reply className="w-4 h-4 text-zinc-400" />
+                    </button>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
             </div>
 
-            <div className="p-4 bg-white border-t">
+            {/* Input */}
+            <div className="border-t bg-white p-3">
               {replyTo && (
-                <div className="flex justify-between text-xs bg-zinc-50 p-2 mb-2 border rounded">
+                <div className="flex justify-between items-center text-xs mb-2 bg-zinc-50 p-2 rounded">
                   <span className="truncate">
                     Replying to: {replyTo.content}
                   </span>
-                  <button onClick={() => setReplyTo(null)}>
+                  <button
+                    onClick={() => setReplyTo(null)}
+                  >
                     <X className="w-3 h-3" />
                   </button>
                 </div>
               )}
 
               <div className="flex items-center gap-2">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  hidden
-                  onChange={handleFileUpload}
-                />
-
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() =>
+                    fileInputRef.current?.click()
+                  }
                 >
                   <Paperclip className="w-5 h-5 text-zinc-400" />
                 </Button>
 
                 <Input
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="Type a message..."
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    socket?.emit("typing", {
+                      conversationId: selectedId,
+                    });
+                  }}
                   onKeyDown={(e) =>
-                    e.key === "Enter" && sendMessage(input)
+                    e.key === "Enter" &&
+                    sendMessage(input)
                   }
+                  placeholder="Type a message..."
                 />
 
                 <Button
