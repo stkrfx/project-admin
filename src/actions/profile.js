@@ -220,7 +220,20 @@ export async function updateProfile(prevState, formData) {
       }
     }
 
-    /* Build Update Payload -------------------------------------------- */
+    /* ------------------------------------------------------------------
+       SCHEDULE LOGIC (Immediate vs 24hr Delay)
+       ------------------------------------------------------------------ */
+    
+    // 1. Fetch current profile to check if a schedule already exists
+    const currentProfile = await ExpertProfile.findOne({ user: session.user.id }).select("availability");
+    const hasExistingSchedule = currentProfile && currentProfile.availability && currentProfile.availability.length > 0;
+
+    const cleanLeaves = data.leaves?.map((l) => ({
+      ...l,
+      date: new Date(l.date),
+    })) || [];
+
+    // Base payload (common fields)
     const updatePayload = {
       draft: {
         name: data.name,
@@ -243,22 +256,30 @@ export async function updateProfile(prevState, formData) {
           website: data.website,
         },
       },
-
-      futureAvailability: {
-        schedule: data.availability,
-        leaves: data.leaves?.map((l) => ({
-          ...l,
-          date: new Date(l.date),
-        })),
-        validFrom: new Date(
-          new Date().setDate(new Date().getDate() + 1)
-        ),
-      },
-
       hasPendingUpdates: true,
       isOnboarded: true,
       rejectionReason: null,
     };
+
+    if (hasExistingSchedule) {
+      // CASE A: Schedule Exists -> Save to Future (Active in 24h)
+      updatePayload.futureAvailability = {
+        schedule: data.availability,
+        leaves: cleanLeaves,
+        validFrom: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours from now
+      };
+    } else {
+      // CASE B: No Schedule (New Expert) -> Save Directly (Active Immediately)
+      updatePayload.availability = data.availability;
+      updatePayload.leaves = cleanLeaves;
+      
+      // Ensure we clear any stale future data so it doesn't overwrite this later
+      updatePayload.futureAvailability = {
+        schedule: [],
+        leaves: [],
+        validFrom: null
+      };
+    }
 
     /* Save to DB ------------------------------------------------------- */
     await ExpertProfile.findOneAndUpdate(
@@ -271,7 +292,9 @@ export async function updateProfile(prevState, formData) {
 
     return {
       success: true,
-      message: "Profile saved successfully.",
+      message: hasExistingSchedule 
+        ? "Profile saved. Schedule updates will apply in 24 hours." 
+        : "Profile saved and schedule is live immediately.",
     };
   } catch (error) {
     console.error("Update Profile Error:", error);
