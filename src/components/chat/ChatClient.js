@@ -90,7 +90,7 @@ export default function ChatClient({ initialConversations, currentUser }) {
   const initialScrollDone = useRef(false);
 
   // ✅ ADD THIS
-const activeClientIdRef = useRef(null);
+  const activeClientIdRef = useRef(null);
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -131,11 +131,12 @@ const activeClientIdRef = useRef(null);
   const remoteUser = useMemo(() => {
     return selectedConversation?.otherUser;
   }, [selectedConversation]);
-  
 
+
+  // [!code change] Update dependency array
   useEffect(() => {
     activeClientIdRef.current = selectedConversation?.otherUser?._id || null;
-  }, [selectedConversationId]);
+  }, [selectedConversation]);
 
   useEffect(() => {
     if (remoteUser) {
@@ -147,15 +148,15 @@ const activeClientIdRef = useRef(null);
   }, [selectedConversationId, remoteUser]);
 
   // --- SOCKET CONNECTION ---
+  // [!code change] Fix variable shadowing
   useEffect(() => {
     let newSocket;
-
+  
     const initSocket = async () => {
-    
       const socketUrl =
         process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || "http://localhost:3002";
-    
-      const newSocket = io(socketUrl, {
+  
+      newSocket = io(socketUrl, {
         path: "/api/socket_io",
         query: {
           userId: currentUser.id,
@@ -164,14 +165,36 @@ const activeClientIdRef = useRef(null);
         transports: ["websocket", "polling"],
         withCredentials: true,
       });
-    
+  
+      // ✅ CONNECTION LOGS
+      newSocket.on("connect", () => {
+        console.log("✅ Socket connected successfully");
+        console.log("🔌 Socket ID:", newSocket.id);
+      });
+  
+      newSocket.on("disconnect", (reason) => {
+        console.log("❌ Socket disconnected:", reason);
+      });
+  
+      newSocket.on("connect_error", (error) => {
+        console.error("🚨 Socket connection error:", error.message);
+      });
+  
+      newSocket.on("reconnect_attempt", (attempt) => {
+        console.log("🔄 Reconnecting... attempt:", attempt);
+      });
+  
       setSocket(newSocket);
     };
-    
-
+  
     initSocket();
-    return () => newSocket?.disconnect();
+  
+    return () => {
+      console.log("🧹 Cleaning up socket connection");
+      newSocket?.disconnect();
+    };
   }, [currentUser.id]);
+  
 
 
   useEffect(() => { setIsMounted(true); }, []);
@@ -202,6 +225,7 @@ const activeClientIdRef = useRef(null);
   };
 
   const onUserStatusChanged = useCallback(({ userId, isOnline, lastSeen }) => {
+    // Uses the stable ref to check if the update is for the current chat
     if (activeClientIdRef.current === userId) {
       setRemoteStatus(prev => ({
         ...prev,
@@ -210,7 +234,7 @@ const activeClientIdRef = useRef(null);
       }));
     }
   }, []);
-  
+
 
   // ✅ Sidebar preview ONLY (no unread logic here)
   const onReceiveDirectMessage = useCallback(
@@ -389,20 +413,20 @@ const activeClientIdRef = useRef(null);
       };
 
       // Request frequent buffer flush
-      mediaRecorder.start(); 
+      mediaRecorder.start();
 
       setIsRecording(true);
       setRecordingTime(0);
 
       // ✅ CLEAR OLD INTERVAL (important)
-if (recordingIntervalRef.current) {
-  clearInterval(recordingIntervalRef.current);
-}
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
 
-// ✅ START FRESH TIMER
-recordingIntervalRef.current = setInterval(() => {
-  setRecordingTime(t => t + 1);
-}, 1000);
+      // ✅ START FRESH TIMER
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingTime(t => t + 1);
+      }, 1000);
 
     } catch (error) {
       console.error("Error accessing microphone:", error);
@@ -612,17 +636,21 @@ recordingIntervalRef.current = setInterval(() => {
 
   useEffect(() => {
     if (!selectedConversationId || !socket) return;
-  
+
     initialScrollDone.current = false;
     isInitialLoadPhase.current = true;
     setChatOpacity(0);
-  
+
     setTimeout(() => {
       isInitialLoadPhase.current = false;
     }, 2000);
-  
+
     socket.emit("join_room", selectedConversationId);
-  
+
+    socket.emit("getUserPresence", {
+      userId: remoteUser?._id,
+    });
+
     // 🔑 FIX: Clear typing indicator in SIDEBAR
     setConversations(prev =>
       prev.map(c =>
@@ -631,7 +659,7 @@ recordingIntervalRef.current = setInterval(() => {
           : c
       )
     );
-  
+
     // Clear unread count (Expert)
     setConversations(prev =>
       prev.map(c =>
@@ -640,35 +668,35 @@ recordingIntervalRef.current = setInterval(() => {
           : c
       )
     );
-  
+
     // Clear active chat typing
     setIsTyping(false);
-  
+
     startMessagesTransition(async () => {
       setMessages([]);
-  
+
       const [history, freshConvo] = await Promise.all([
         getMessages(selectedConversationId),
         getConversationById(selectedConversationId),
       ]);
-  
+
       setMessages(history);
-  
+
       if (freshConvo) {
         updateChatList({
           ...freshConvo,
           conversationId: freshConvo._id,
         });
       }
-  
+
       socket.emit("markAsRead", {
         conversationId: selectedConversationId,
         userId: currentUser.id,
       });
     });
   }, [selectedConversationId, currentUser.id, socket, updateChatList]);
-  
-  
+
+
 
   useEffect(() => {
     if (!socket) return;
@@ -687,6 +715,22 @@ recordingIntervalRef.current = setInterval(() => {
       socket.off("messagesRead", onMessagesRead);
     };
   }, [selectedConversationId, socket, onReceiveMessage, onTyping, onStopTyping, onUserStatusChanged, onMessagesRead]);
+
+  useEffect(() => {
+    if (!socket) return;
+  
+    const onPresence = ({ userId, isOnline, lastSeen }) => {
+      if (activeClientIdRef.current === userId) {
+        setRemoteStatus({ isOnline, lastSeen });
+      }
+    };
+  
+    socket.on("userPresence", onPresence);
+  
+    return () => {
+      socket.off("userPresence", onPresence);
+    };
+  }, [socket]);
 
   useEffect(() => {
     if (!socket) return;
@@ -794,10 +838,10 @@ function MessageBubble({
 
   const timestamp = isMounted
     ? new Date(message.createdAt).toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: true,
-      })
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    })
     : null;
 
   const isDeleted = message.isDeleted === true;
