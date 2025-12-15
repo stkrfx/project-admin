@@ -89,6 +89,9 @@ export default function ChatClient({ initialConversations, currentUser }) {
   const isInitialLoadPhase = useRef(true);
   const initialScrollDone = useRef(false);
 
+  // ✅ ADD THIS
+const activeClientIdRef = useRef(null);
+
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const mimeTypeRef = useRef("audio/webm");
@@ -126,6 +129,10 @@ export default function ChatClient({ initialConversations, currentUser }) {
 
   // ✅ ADAPTATION: Identify the "Other User" correctly for the Expert
   const remoteUser = selectedConversation?.otherUser;
+
+  useEffect(() => {
+    activeClientIdRef.current = remoteUser?._id || null;
+  }, [remoteUser]);
 
   useEffect(() => {
     if (remoteUser) {
@@ -194,11 +201,15 @@ export default function ChatClient({ initialConversations, currentUser }) {
   };
 
   const onUserStatusChanged = useCallback(({ userId, isOnline, lastSeen }) => {
-    // ✅ ADAPTATION: Check against remoteUser._id
-    if (remoteUser?._id === userId) {
-      setRemoteStatus(prev => ({ ...prev, isOnline, lastSeen: lastSeen || prev.lastSeen }));
+    if (activeClientIdRef.current === userId) {
+      setRemoteStatus(prev => ({
+        ...prev,
+        isOnline,
+        lastSeen: lastSeen || prev.lastSeen,
+      }));
     }
-  }, [remoteUser]);
+  }, []);
+  
 
   // ✅ Sidebar preview ONLY (no unread logic here)
   const onReceiveDirectMessage = useCallback(
@@ -377,14 +388,20 @@ export default function ChatClient({ initialConversations, currentUser }) {
       };
 
       // Request frequent buffer flush
-      mediaRecorder.start(100);
+      mediaRecorder.start(); 
 
       setIsRecording(true);
       setRecordingTime(0);
 
-      recordingIntervalRef.current = setInterval(() => {
-        setRecordingTime(t => t + 1);
-      }, 1000);
+      // ✅ CLEAR OLD INTERVAL (important)
+if (recordingIntervalRef.current) {
+  clearInterval(recordingIntervalRef.current);
+}
+
+// ✅ START FRESH TIMER
+recordingIntervalRef.current = setInterval(() => {
+  setRecordingTime(t => t + 1);
+}, 1000);
 
     } catch (error) {
       console.error("Error accessing microphone:", error);
