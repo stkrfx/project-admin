@@ -34,7 +34,7 @@ export async function getConversations() {
       expertId: session.user.id,
     })
       .populate({
-        path: "userId", // Client
+        path: "userId",
         model: User,
         select: "name image isOnline lastSeen",
       })
@@ -66,9 +66,12 @@ export async function getConversations() {
         ? c.lastMessageSender.toString()
         : null,
 
-      // ✅ Unread count relevant to EXPERT
-      unreadCount: c.expertUnreadCount || 0,
+      // ✅ Unread counts
+      unreadCount: c.expertUnreadCount || 0, // backward compatible
       expertUnreadCount: c.expertUnreadCount || 0,
+
+      // ✅ FIX: expose client unread count
+      userUnreadCount: c.userUnreadCount || 0,
 
       lastMessageAt: c.lastMessageAt
         ? new Date(c.lastMessageAt).toISOString()
@@ -96,7 +99,7 @@ export async function getMessages(conversationId) {
   try {
     await connectDB();
 
-    // ✅ OWNERSHIP GUARD (critical)
+    // ✅ OWNERSHIP GUARD
     const conversation = await Conversation.findOne({
       _id: conversationId,
       expertId: session.user.id,
@@ -162,7 +165,7 @@ export async function getConversationById(conversationId) {
 
     const conversation = await Conversation.findOne({
       _id: conversationId,
-      expertId: session.user.id, // ✅ Expert ownership enforced
+      expertId: session.user.id, // ✅ ownership enforced
     })
       .populate({
         path: "userId",
@@ -199,8 +202,12 @@ export async function getConversationById(conversationId) {
           ? conversation.lastMessageSender.toString()
           : null,
 
+        // ✅ Unread counts
         unreadCount: conversation.expertUnreadCount || 0,
         expertUnreadCount: conversation.expertUnreadCount || 0,
+
+        // ✅ FIX: expose client unread count
+        userUnreadCount: conversation.userUnreadCount || 0,
 
         lastMessageAt: conversation.lastMessageAt
           ? new Date(conversation.lastMessageAt).toISOString()
