@@ -138,14 +138,15 @@ export default function ChatClient({ initialConversations, currentUser }) {
     activeClientIdRef.current = selectedConversation?.otherUser?._id || null;
   }, [selectedConversation]);
 
+  // [!code change] Only update initial status when the USER ID changes
   useEffect(() => {
     if (remoteUser) {
-      setRemoteStatus(prev => {
-        if (prev.isOnline === remoteUser.isOnline && prev.lastSeen === remoteUser.lastSeen) return prev;
-        return { isOnline: remoteUser.isOnline, lastSeen: remoteUser.lastSeen };
+      setRemoteStatus({ 
+        isOnline: remoteUser.isOnline, 
+        lastSeen: remoteUser.lastSeen 
       });
     }
-  }, [selectedConversationId, remoteUser]);
+  }, [remoteUser?._id]);
 
   // --- SOCKET CONNECTION ---
   // [!code change] Fix variable shadowing
@@ -647,9 +648,12 @@ export default function ChatClient({ initialConversations, currentUser }) {
 
     socket.emit("join_room", selectedConversationId);
 
-    socket.emit("getUserPresence", {
-      userId: remoteUser?._id,
-    });
+    // [!code ++] Check if ID exists before emitting
+    if (remoteUser?._id) {
+      socket.emit("getUserPresence", {
+        userId: remoteUser._id,
+      });
+    }
 
     // 🔑 FIX: Clear typing indicator in SIDEBAR
     setConversations(prev =>
@@ -694,7 +698,8 @@ export default function ChatClient({ initialConversations, currentUser }) {
         userId: currentUser.id,
       });
     });
-  }, [selectedConversationId, currentUser.id, socket, updateChatList]);
+  // [!code ++] Added remoteUser?._id to dependency array
+  }, [selectedConversationId, currentUser.id, socket, updateChatList, remoteUser?._id]);
 
 
 
