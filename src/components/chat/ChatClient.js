@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import ProfileImage from "@/components/ProfileImage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getMessages } from "@/actions/chat";
+import { getMessages, getConversationById } from "@/actions/chat";
 import io from "socket.io-client";
 import { useUploadThing } from "@/lib/uploadthing";
 
@@ -200,6 +200,55 @@ useEffect(() => {
     }
   }, [remoteUser]);
 
+  // ✅ Sidebar preview ONLY (no unread logic here)
+  const onReceiveDirectMessage = useCallback(
+    async (message) => {
+      let previewText = message.content;
+      if (message.contentType === "audio") previewText = "🎤 Audio Message";
+      else if (message.contentType === "image") previewText = "📷 Image";
+      else if (message.contentType === "pdf") previewText = "📄 Document";
+  
+      let shouldFetch = false;
+  
+      setConversations(prev => {
+        const exists = prev.some(c => c._id === message.conversationId);
+  
+        if (exists) {
+          return prev
+            .map(c =>
+              c._id === message.conversationId
+                ? {
+                    ...c,
+                    lastMessage: previewText,
+                    lastMessageAt: message.createdAt,
+                    lastMessageSender: message.sender,
+                  }
+                : c
+            )
+            .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
+        }
+  
+        shouldFetch = true;
+        return prev;
+      });
+  
+      // ✅ NEW conversation → fetch safely
+      if (shouldFetch) {
+        try {
+          const convo = await getConversationById(message.conversationId);
+          if (convo) {
+            setConversations(prev => [convo, ...prev]);
+          }
+        } catch (err) {
+          console.error("Failed to fetch conversation:", err);
+        }
+      }
+    },
+    []
+  );
+  
+
+
   const onTyping = useCallback(({ conversationId, typerId }) => {
     if (conversationId === selectedConversationId && typerId !== currentUser.id) setIsTyping(true);
     setConversations(prev => prev.map(c => c._id === conversationId ? { ...c, isTyping: true } : c));
@@ -260,51 +309,116 @@ useEffect(() => {
     }
   };
 
-  const startRecording = async () => {
-    try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); let mimeType = "audio/webm"; if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) mimeType = "audio/webm;codecs=opus"; else if (MediaRecorder.isTypeSupported("audio/mp4")) mimeType = "audio/mp4"; mimeTypeRef.current = mimeType; const mediaRecorder = new MediaRecorder(stream, { mimeType }); mediaRecorderRef.current = mediaRecorder; audioChunksRef.current = []; mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); }; mediaRecorder.start(200); setIsRecording(true); setRecordingTime(0); recordingIntervalRef.current = setInterval(() => { setRecordingTime(p => p + 1); }, 1000); } catch (error) { console.error("Error accessing microphone:", error); alert("Could not access microphone."); }
-  };
+  // [!code fix] UPDATED RECORDING LOGIC (ADMIN / EXPERT)
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setTimeout(async () => {
-        const mimeType = mimeTypeRef.current;
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        if (audioBlob.size === 0) {
-          alert("Recording failed: Empty audio.");
-          setIsRecording(false);
-          clearInterval(recordingIntervalRef.current);
-          return;
-        }
-        const ext = mimeType.includes("mp4") ? "m4a" : "webm";
-        const audioFile = new File([audioBlob], `voice-message.${ext}`, { type: mimeType });
-        setIsRecording(false);
-        clearInterval(recordingIntervalRef.current);
+const startRecording = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-        const blobUrl = URL.createObjectURL(audioBlob);
-        const optimisticMsg = addOptimisticMessage(blobUrl, "audio");
-
-        try {
-          const res = await startUpload([audioFile]);
-          if (res && res[0]) {
-            const realUrl = res[0].url;
-            setMessages(prev => prev.map(msg =>
-              msg._id === optimisticMsg._id ? { ...msg, content: realUrl } : msg
-            ));
-            sendMessageSocket(realUrl, "audio");
-          }
-        } catch (error) {
-          console.error("Upload error:", error);
-          setMessages(prev => prev.filter(m => m._id !== optimisticMsg._id));
-        }
-        if (mediaRecorderRef.current?.stream) {
-          mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-        }
-      }, 200);
+    let mimeType = "audio/webm";
+    if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+      mimeType = "audio/webm;codecs=opus";
+    } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+      mimeType = "audio/mp4";
     }
-  };
 
-  const cancelRecording = () => { if (mediaRecorderRef.current && isRecording) { mediaRecorderRef.current.stop(); if (mediaRecorderRef.current.stream) { mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop()); } setIsRecording(false); clearInterval(recordingIntervalRef.current); setRecordingTime(0); } };
+    mimeTypeRef.current = mimeType;
+
+    const mediaRecorder = new MediaRecorder(stream, { mimeType });
+    mediaRecorderRef.current = mediaRecorder;
+    audioChunksRef.current = [];
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data);
+    };
+
+    // ✅ Process ONLY after recorder fully stops
+    mediaRecorder.onstop = async () => {
+      const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+      if (audioBlob.size === 0) return;
+
+      const ext = mimeType.includes("mp4") ? "m4a" : "webm";
+      const audioFile = new File(
+        [audioBlob],
+        `voice-message.${ext}`,
+        { type: mimeType }
+      );
+
+      const blobUrl = URL.createObjectURL(audioBlob);
+
+      // 1️⃣ Optimistic message (Expert)
+      const optimisticMsg = addOptimisticMessage(blobUrl, "audio");
+
+      try {
+        const res = await startUpload([audioFile]);
+        if (res && res[0]) {
+          const realUrl = res[0].url;
+
+          // 2️⃣ Sync optimistic content BEFORE socket echo
+          setMessages(prev =>
+            prev.map(msg =>
+              msg._id === optimisticMsg._id
+                ? { ...msg, content: realUrl }
+                : msg
+            )
+          );
+
+          sendMessageSocket(realUrl, "audio");
+        }
+      } catch (error) {
+        console.error("Upload error:", error);
+        setMessages(prev =>
+          prev.filter(m => m._id !== optimisticMsg._id)
+        );
+      }
+
+      // Cleanup
+      stream.getTracks().forEach(track => track.stop());
+    };
+
+    // Request frequent buffer flush
+    mediaRecorder.start(100);
+
+    setIsRecording(true);
+    setRecordingTime(0);
+
+    recordingIntervalRef.current = setInterval(() => {
+      setRecordingTime(t => t + 1);
+    }, 1000);
+
+  } catch (error) {
+    console.error("Error accessing microphone:", error);
+    alert("Could not access microphone.");
+  }
+};
+
+const stopRecording = () => {
+  if (mediaRecorderRef.current && isRecording) {
+    mediaRecorderRef.current.stop(); // triggers onstop
+    setIsRecording(false);
+    clearInterval(recordingIntervalRef.current);
+  }
+};
+
+const cancelRecording = () => {
+  if (mediaRecorderRef.current && isRecording) {
+    // 🚫 Prevent upload logic
+    mediaRecorderRef.current.onstop = null;
+    mediaRecorderRef.current.stop();
+
+    if (mediaRecorderRef.current.stream) {
+      mediaRecorderRef.current.stream
+        .getTracks()
+        .forEach(track => track.stop());
+    }
+
+    setIsRecording(false);
+    clearInterval(recordingIntervalRef.current);
+    setRecordingTime(0);
+    audioChunksRef.current = [];
+  }
+};
+
 
   const sendMessageSocket = (content, contentType = "text") => {
     if (!selectedConversationId || !socket || !remoteUser?._id) return;
@@ -323,7 +437,31 @@ useEffect(() => {
   
 
   const handleSendMessage = (e) => { e.preventDefault(); if (!newMessage.trim()) return; addOptimisticMessage(newMessage, "text"); sendMessageSocket(newMessage, "text"); setNewMessage(""); inputRef.current?.focus(); };
-  const handleDeleteMessage = (messageId) => { if (!socket) return; socket.emit("deleteMessage", { conversationId: selectedConversationId, messageId }); setMessages(prev => prev.filter(m => m._id !== messageId)); setDeleteConfirmId(null); };
+  const handleDeleteMessage = (messageId) => {
+    if (!socket) return;
+  
+    // ✅ Optimistic delete (do NOT remove message)
+    setMessages(prev =>
+      prev.map(m =>
+        m._id === messageId
+          ? {
+              ...m,
+              isDeleted: true,
+              content: "🚫 This message was deleted",
+              contentType: "text",
+            }
+          : m
+      )
+    );
+  
+    socket.emit("deleteMessage", {
+      conversationId: selectedConversationId,
+      messageId,
+    });
+  
+    setDeleteConfirmId(null);
+  };
+  
 
   const onReceiveMessage = useCallback(
     (message) => {
@@ -367,33 +505,76 @@ useEffect(() => {
       else if (message.contentType === "image") previewText = "📷 Image";
       else if (message.contentType === "pdf") previewText = "📄 Document";
   
-      updateChatList({
+      const updates = {
         conversationId: message.conversationId,
         lastMessage: previewText,
         lastMessageAt: message.createdAt,
+        lastMessageSender: message.sender,
         lastMessageStatus: "sent",
-      });
+      };
+      
+      // 👇 IF *I SENT* → GREY TICK
+      if (message.sender === currentUser.id) {
+        updates.expertUnreadCount = 1;
+      }
+      
+      // 👇 IF *CLIENT SENT* → BADGE
+      if (message.sender !== currentUser.id) {
+        updates.expertUnreadCount =
+          selectedConversationId === message.conversationId ? 0 : 1;
+      }
+      
+      updateChatList(updates);
+      
+      
     },
     [selectedConversationId, currentUser.id, socket, updateChatList]
   );
   
 
-  const onMessagesRead = useCallback(({ conversationId, readByUserId }) => { if (conversationId === selectedConversationId) { setMessages((prev) => prev.map(msg => { if (msg.sender === currentUser.id && !msg.readBy.includes(readByUserId)) { return { ...msg, readBy: [...msg.readBy, readByUserId] }; } return msg; })); } }, [selectedConversationId, currentUser.id]);
+  const onMessagesRead = useCallback(
+    ({ conversationId, readByUserId }) => {
+      // Message bubbles
+      if (conversationId === selectedConversationId) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.sender === currentUser.id &&
+            !msg.readBy.includes(readByUserId)
+              ? { ...msg, readBy: [...msg.readBy, readByUserId] }
+              : msg
+          )
+        );
+      }
+  
+      // ✅ SIDEBAR → BLUE TICK
+      if (readByUserId !== currentUser.id) {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c._id === conversationId
+              ? { ...c, expertUnreadCount: 0 }
+              : c
+          )
+        );
+      }
+    },
+    [selectedConversationId, currentUser.id]
+  );
+  
   const onMessageDeleted = useCallback(({ messageId }) => {
-    setMessages((prev) =>
-      prev.map((msg) => {
-        if (msg._id === messageId) {
-          return {
-            ...msg,
-            isDeleted: true,
-            content: "🚫 This message was deleted",
-            contentType: "text",
-          };
-        }
-        return msg;
-      })
+    setMessages(prev =>
+      prev.map(msg =>
+        msg._id === messageId
+          ? {
+              ...msg,
+              isDeleted: true,
+              content: "🚫 This message was deleted",
+              contentType: "text",
+            }
+          : msg
+      )
     );
   }, []);
+  
   
   const onConversationUpdated = useCallback((updatedConvo) => { updateChatList(updatedConvo); }, [updateChatList]);
 
@@ -429,13 +610,24 @@ useEffect(() => {
     socket.on("messagesRead", onMessagesRead);
     return () => {
       socket.off("receive_message", onReceiveMessage);
-      socket.on("messageDeleted", onMessageDeleted);
+      socket.off("messageDeleted", onMessageDeleted);
       socket.off("typing", onTyping);
       socket.off("stopTyping", onStopTyping);
       socket.off("userStatusChanged", onUserStatusChanged);
       socket.off("messagesRead", onMessagesRead);
     };
   }, [selectedConversationId, socket, onReceiveMessage, onTyping, onStopTyping, onUserStatusChanged, onMessagesRead]);
+
+  useEffect(() => {
+    if (!socket) return;
+  
+    socket.on("receiveDirectMessage", onReceiveDirectMessage);
+  
+    return () => {
+      socket.off("receiveDirectMessage", onReceiveDirectMessage);
+    };
+  }, [socket, onReceiveDirectMessage]);
+  
 
   useLayoutEffect(() => { if (messages.length > 0 && messagesContainerRef.current && !isMessagesPending) { const container = messagesContainerRef.current; if (!initialScrollDone.current) { container.scrollTop = container.scrollHeight; initialScrollDone.current = true; setChatOpacity(1); } else { const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150; if (isNearBottom) { container.scrollTo({ top: container.scrollHeight, behavior: "auto" }); } } } else if (messages.length === 0 && !isMessagesPending) { setChatOpacity(1); } }, [messages, isMessagesPending]);
   useEffect(() => { const container = messagesContainerRef.current; if (!container) return; const handleScroll = () => { const { scrollTop, scrollHeight, clientHeight } = container; const isNearBottom = scrollHeight - scrollTop - clientHeight < 100; setShowScrollBottomButton(!isNearBottom); const dateHeaders = container.querySelectorAll('[data-date-header]'); let currentDate = ""; dateHeaders.forEach((header) => { const rect = header.getBoundingClientRect(); const containerRect = container.getBoundingClientRect(); if (rect.top <= containerRect.top + 60) currentDate = header.getAttribute('data-date-header'); }); setCurrentStickyDate(currentDate); }; container.addEventListener('scroll', handleScroll); return () => container.removeEventListener('scroll', handleScroll); }, [isMessagesPending]);
@@ -495,7 +687,19 @@ useEffect(() => {
 
 function SmartImage({ src, alt, onClick, onLoad }) { const [displaySrc, setDisplaySrc] = useState(src); useEffect(() => { if (src !== displaySrc) { const img = new Image(); img.src = src; img.onload = () => { setDisplaySrc(src); }; } }, [src, displaySrc]); return (<img src={displaySrc} alt={alt} className="max-w-full h-auto object-cover max-h-64" onClick={onClick} onLoad={onLoad} />); }
 function MediaViewerModal({ src, type, onClose }) { if (!src) return null; return (<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-md animate-in fade-in duration-200" onClick={onClose}> <button onClick={onClose} className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors z-50"><XIcon className="h-6 w-6" /></button> <div className="relative w-full h-full max-w-6xl max-h-[90vh] flex items-center justify-center p-4" onClick={e => e.stopPropagation()}>{type === 'image' && <img src={src} alt="Full view" className="max-w-full max-h-full object-contain rounded-md shadow-2xl" />}</div> </div>); }
-function ConversationItem({ convo, isSelected, onClick, isMounted, currentUserId, isTyping }) { const otherUser = convo.otherUser; const isLastMessageMine = convo.lastMessageSender === currentUserId; const isReadByMe = convo.expertUnreadCount === 0; const isSending = convo.lastMessageStatus === 'sending'; return (<button onClick={onClick} className={cn("flex w-full items-start gap-4 px-4 py-4 text-left hover:bg-zinc-50 transition-all duration-200", isSelected && "bg-zinc-50 border-l-4 border-indigo-600 pl-3")}> <ProfileImage src={otherUser?.profilePicture} name={otherUser?.name} sizeClass="h-12 w-12 shrink-0" /> <div className="flex-1 overflow-hidden min-w-0"> <div className="flex justify-between items-start mb-1 gap-2"><h3 className="font-semibold text-base text-zinc-900 truncate">{otherUser?.name}</h3><span className="text-xs text-zinc-500 shrink-0 pt-1">{isMounted ? formatLastMessageTime(convo.lastMessageAt) : null}</span></div> <div className="flex justify-between items-center gap-2"><div className="flex items-center gap-1 overflow-hidden flex-1">{isTyping ? <p className="text-sm text-indigo-600 font-medium truncate animate-pulse">typing...</p> : <>{isLastMessageMine && (isSending ? <ClockIcon className="h-3 w-3 text-zinc-400 shrink-0" /> : <CheckCheckIcon className={cn("h-4 w-4 shrink-0", "text-blue-500")} />)}<p className="text-sm text-zinc-500 truncate">{convo.lastMessage || "No messages yet"}</p></>}</div>{convo.expertUnreadCount > 0 && <span className="flex items-center justify-center bg-indigo-600 text-white text-xs font-bold rounded-full h-5 min-w-[20px] px-1.5 shrink-0">{convo.expertUnreadCount}</span>}</div> </div> </button>); }
+function ConversationItem({ convo, isSelected, onClick, isMounted, currentUserId, isTyping }) { const otherUser = convo.otherUser; const isLastMessageMine = convo.lastMessageSender === currentUserId; const isReadByMe = convo.expertUnreadCount === 0; const isSending = convo.lastMessageStatus === 'sending'; return (<button onClick={onClick} className={cn("flex w-full items-start gap-4 px-4 py-4 text-left hover:bg-zinc-50 transition-all duration-200", isSelected && "bg-zinc-50 border-l-4 border-indigo-600 pl-3")}> <ProfileImage src={otherUser?.profilePicture} name={otherUser?.name} sizeClass="h-12 w-12 shrink-0" /> <div className="flex-1 overflow-hidden min-w-0"> <div className="flex justify-between items-start mb-1 gap-2"><h3 className="font-semibold text-base text-zinc-900 truncate">{otherUser?.name}</h3><span className="text-xs text-zinc-500 shrink-0 pt-1">{isMounted ? formatLastMessageTime(convo.lastMessageAt) : null}</span></div> <div className="flex justify-between items-center gap-2"><div className="flex items-center gap-1 overflow-hidden flex-1">{isTyping ? <p className="text-sm text-indigo-600 font-medium truncate animate-pulse">typing...</p> : <>{isLastMessageMine && (
+  isSending ? (
+    <ClockIcon className="h-3 w-3 text-zinc-400 shrink-0" />
+  ) : (
+    <CheckCheckIcon
+      className={cn(
+        "h-4 w-4 shrink-0",
+        isReadByMe ? "text-blue-500" : "text-zinc-400"
+      )}
+    />
+  )
+)}
+<p className="text-sm text-zinc-500 truncate">{convo.lastMessage || "No messages yet"}</p></>}</div>{convo.expertUnreadCount > 0 && <span className="flex items-center justify-center bg-indigo-600 text-white text-xs font-bold rounded-full h-5 min-w-[20px] px-1.5 shrink-0">{convo.expertUnreadCount}</span>}</div> </div> </button>); }
 function VoiceMessagePlayer({ src, isSender }) { const [isPlaying, setIsPlaying] = useState(false); const [progress, setProgress] = useState(0); const [duration, setDuration] = useState(0); const audioRef = useRef(null); useEffect(() => { const audio = audioRef.current; if (!audio) return; const updateProgress = () => { const current = audio.currentTime; const total = audio.duration; if (Number.isFinite(total) && total > 0) { setProgress((current / total) * 100); setDuration(total); } else { setProgress(0); setDuration(0); } }; const setAudioData = () => { const d = audio.duration; if (Number.isFinite(d)) setDuration(d); }; const handleEnded = () => { setIsPlaying(false); setProgress(0); }; audio.addEventListener('timeupdate', updateProgress); audio.addEventListener('loadedmetadata', setAudioData); audio.addEventListener('durationchange', setAudioData); audio.addEventListener('ended', handleEnded); return () => { audio.removeEventListener('timeupdate', updateProgress); audio.removeEventListener('loadedmetadata', setAudioData); audio.removeEventListener('durationchange', setAudioData); audio.removeEventListener('ended', handleEnded); }; }, []); const togglePlay = () => { const audio = audioRef.current; if (!audio) return; if (isPlaying) audio.pause(); else audio.play(); setIsPlaying(!isPlaying); }; const handleSeek = (e) => { const audio = audioRef.current; if (!audio) return; const newTime = (e.target.value / 100) * audio.duration; audio.currentTime = newTime; setProgress(e.target.value); }; const formatTime = (time) => { if (!Number.isFinite(time) || isNaN(time)) return "0:00"; const mins = Math.floor(time / 60); const secs = Math.floor(time % 60); return `${mins}:${secs.toString().padStart(2, '0')}`; }; return (<div className="flex items-center gap-3 pr-4 min-w-[200px] py-1"> <audio ref={audioRef} src={src} className="hidden" /> <button onClick={togglePlay} className={cn("flex items-center justify-center h-10 w-10 rounded-full transition-colors shrink-0", isSender ? "bg-white/20 hover:bg-white/30 text-white" : "bg-indigo-50 hover:bg-indigo-100 text-indigo-600")}>{isPlaying ? <PauseIcon className="h-5 w-5" /> : <PlayIcon className="h-5 w-5 ml-0.5" />}</button> <div className="flex-1 flex flex-col gap-1"><input type="range" min="0" max="100" value={progress || 0} onChange={handleSeek} className={cn("w-full h-1 rounded-lg appearance-none cursor-pointer", isSender ? "bg-white/30 accent-white" : "bg-zinc-200 accent-indigo-600")} /><div className={cn("flex justify-between text-[10px] font-medium", isSender ? "text-white/80" : "text-zinc-500")}><span>{formatTime(audioRef.current?.currentTime || 0)}</span><span>{formatTime(duration)}</span></div></div> </div>); }
 function MessageBubble({ message, isSender, isFirstInGroup, isLastInGroup, onReplyClick, onReplyView, onDeleteClick, showDeleteConfirm, onConfirmDelete, onCancelDelete, isMounted, currentUserId, onViewMedia, onImageLoad }) { const [showMenu, setShowMenu] = useState(false); const menuRef = useRef(null); const timestamp = isMounted ? new Date(message.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true }) : null; const canDelete = message.sender === currentUserId; const isDeleted = message.isDeleted === true; const isSending = message.status === "sending"; const isRead = message.readBy && message.readBy.some(id => id !== currentUserId); const isAudio = message.contentType === 'audio' || (typeof message.content === 'string' && message.content.startsWith('data:audio')); const isImage = message.contentType === 'image'; const isPdf = message.contentType === 'pdf'; useEffect(() => { const handleClickOutside = (event) => { if (menuRef.current && !menuRef.current.contains(event.target)) setShowMenu(false); }; if (showMenu) { document.addEventListener('mousedown', handleClickOutside); return () => document.removeEventListener('mousedown', handleClickOutside); } }, [showMenu]); return (<div id={`message-${message._id}`} className={cn("flex w-full group", isFirstInGroup ? "mt-3" : "mt-1")}> <div className={cn("flex w-full", isSender ? "justify-end" : "justify-start")}> <div className={cn("px-4 py-2.5 pb-6 relative shadow-sm max-w-[75%]", isSender ? "bg-indigo-600 text-white" : "bg-white text-zinc-800 border border-zinc-200", "rounded-2xl", !isFirstInGroup && isSender && "rounded-tr-md", !isFirstInGroup && !isSender && "rounded-tl-md", !isLastInGroup && isSender && "rounded-br-md", !isLastInGroup && !isSender && "rounded-bl-md")}> {message.replyTo && (<button onClick={() => onReplyView(message.replyTo._id)} className={cn("block p-2.5 rounded-lg mb-2 w-full text-left", "border-l-4", isSender ? "bg-black/10 border-white/50" : "bg-zinc-50 border-indigo-500")}> <p className={cn("font-semibold text-xs mb-1", isSender ? "text-white" : "text-indigo-600")}>{message.replyTo.senderModel}</p> {message.replyTo.contentType === 'image' ? <div className="flex items-center gap-2 mt-1"><ImageIcon className="h-4 w-4" /> <span className="text-xs opacity-80">Photo</span></div> : message.replyTo.contentType === 'pdf' ? <div className="flex items-center gap-2 mt-1"><FileIcon className="h-4 w-4" /> <span className="text-xs opacity-80">Document</span></div> : <p className={cn("text-sm truncate", isSender ? "text-white/80" : "text-zinc-600")}>{message.replyTo.content}</p>} </button>)} {isAudio ? <VoiceMessagePlayer src={message.content} isSender={isSender} /> : isImage ? <div className="mb-1 rounded-lg overflow-hidden cursor-pointer hover:opacity-90 transition-opacity" onClick={() => onViewMedia(message.content, 'image')}><SmartImage src={message.content} alt="Shared image" onLoad={onImageLoad} /></div> : isPdf ? <a href={message.content} target="_blank" rel="noopener noreferrer" className={cn("flex items-center gap-3 p-3 rounded-lg transition-colors cursor-pointer", isSender ? "bg-white/10 hover:bg-white/20" : "bg-zinc-100 hover:bg-zinc-200")}><div className={cn("p-2 rounded-full", isSender ? "bg-white/20" : "bg-white")}><FileIcon className="h-5 w-5" /></div><div className="flex-1 overflow-hidden"><p className="text-sm font-medium truncate">Document.pdf</p><p className={cn("text-xs", isSender ? "text-white/80" : "text-zinc-500")}>Tap to view</p></div><DownloadIcon className="h-4 w-4 opacity-70" /></a> : <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap pr-16">{message.content}</p>} <div className="absolute right-3 bottom-1.5 flex items-center gap-1"><span className={cn("text-[11px]", isSender ? "text-white/70" : "text-zinc-400")}>{timestamp}</span>{isSender && (isSending ? <ClockIcon className="h-3 w-3 text-white/70" /> : <CheckCheckIcon className={cn("h-3.5 w-3.5", isRead ? "text-blue-300" : "text-white/70")} />)}</div> <div className={cn("absolute top-0 flex gap-1 transition-all opacity-0 group-hover:opacity-100", isSender ? "-left-16" : "-right-16")}>{!isDeleted && (<Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-white border border-zinc-200 shadow-md hover:bg-zinc-50" onClick={onReplyClick} onMouseDown={(e) => e.preventDefault()}><ReplyIcon className="h-4 w-4 text-zinc-600" /></Button>)}{canDelete && !isDeleted && (<div className="relative" ref={menuRef}><Button variant="ghost" size="icon" className="h-8 w-8 rounded-full bg-white border border-zinc-200 shadow-md hover:bg-zinc-50" onClick={() => setShowMenu(!showMenu)} onMouseDown={(e) => e.preventDefault()}><MoreVerticalIcon className="h-4 w-4 text-zinc-600" /></Button>{showMenu && (<div className="absolute top-full mt-1 right-0 bg-white border border-zinc-200 rounded-lg shadow-lg z-50 min-w-[150px]"><button onClick={() => { onDeleteClick(); setShowMenu(false); }} className="w-full px-4 py-2 text-left text-sm hover:bg-zinc-50 flex items-center gap-2 text-red-600"><TrashIcon />Delete Message</button></div>)}</div>)}</div> {showDeleteConfirm && (<div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"><div className="bg-white rounded-lg p-6 max-w-sm mx-4 shadow-xl"><h3 className="text-lg font-semibold mb-2 text-zinc-900">Delete Message?</h3><p className="text-sm text-zinc-500 mb-4">This message will be deleted for everyone. This action cannot be undone.</p><div className="flex gap-2 justify-end"><Button variant="ghost" onClick={onCancelDelete}>Cancel</Button><Button variant="destructive" onClick={onConfirmDelete}>Delete</Button></div></div></div>)} </div> </div> </div>); }
 function ReplyPreview({ message, onCancel }) { const isImage = message.contentType === 'image'; const isPdf = message.contentType === 'pdf'; const isAudio = message.contentType === 'audio'; return (<div className="flex items-center justify-between p-3 mb-3 rounded-lg bg-zinc-50 border-l-4 border-indigo-600"> <div className="flex-1 overflow-hidden"> <p className="font-semibold text-sm text-indigo-600 mb-1">Replying to {message.senderModel === "Expert" ? "yourself" : message.senderModel}</p> {isImage ? <div className="flex items-center gap-2"><ImageIcon className="h-4 w-4 text-zinc-500" /><span className="text-sm text-zinc-500">Photo</span></div> : isPdf ? <div className="flex items-center gap-2"><FileIcon className="h-4 w-4 text-zinc-500" /><span className="text-sm text-zinc-500">Document</span></div> : isAudio ? <div className="flex items-center gap-2"><MicIcon className="h-4 w-4 text-zinc-500" /><span className="text-sm text-zinc-500">Voice Message</span></div> : <p className="text-sm text-zinc-500 truncate">{message.content}</p>} </div> <Button variant="ghost" size="icon" onClick={onCancel} className="ml-2 hover:bg-zinc-200 shrink-0"><XIcon className="h-5 w-5 text-zinc-500" /></Button> </div>); }

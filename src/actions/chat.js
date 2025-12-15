@@ -2,6 +2,12 @@
  * File: src/actions/chat.js
  * ACTION: Expert-side Chat Logic
  * Architecture: User ↔ User (Expert is a User with ExpertProfile)
+ *
+ * Guarantees:
+ * - RSC-safe serialization
+ * - Ownership enforcement (expert-only access)
+ * - Shared ChatClient compatibility
+ * - Socket + optimistic UI friendly
  */
 
 "use server";
@@ -24,7 +30,6 @@ export async function getConversations() {
   try {
     await connectDB();
 
-    // Fetch conversations where I am the expert
     const conversations = await Conversation.find({
       expertId: session.user.id,
     })
@@ -36,20 +41,19 @@ export async function getConversations() {
       .sort({ lastMessageAt: -1 })
       .lean();
 
-    // Serialize + map for shared ChatClient
     const plainConversations = conversations.map((c) => ({
       _id: c._id.toString(),
 
       userId: c.userId?._id.toString(),
       expertId: c.expertId.toString(),
 
-      // ✅ Standardized alias used by ChatClient
+      // ✅ Shared ChatClient contract
       otherUser: c.userId
         ? {
             _id: c.userId._id.toString(),
             name: c.userId.name,
             image: c.userId.image,
-            profilePicture: c.userId.image, // compatibility
+            profilePicture: c.userId.image,
             isOnline: c.userId.isOnline,
             lastSeen: c.userId.lastSeen
               ? new Date(c.userId.lastSeen).toISOString()
@@ -92,6 +96,14 @@ export async function getMessages(conversationId) {
   try {
     await connectDB();
 
+    // ✅ OWNERSHIP GUARD (critical)
+    const conversation = await Conversation.findOne({
+      _id: conversationId,
+      expertId: session.user.id,
+    });
+
+    if (!conversation) return [];
+
     const messages = await Message.find({ conversationId })
       .sort({ createdAt: 1 })
       .populate({
@@ -101,7 +113,6 @@ export async function getMessages(conversationId) {
       })
       .lean();
 
-    // Robust serialization (fixes ObjectId buffer issues)
     const plainMessages = messages.map((msg) => ({
       _id: msg._id.toString(),
       conversationId: msg.conversationId.toString(),
@@ -125,7 +136,7 @@ export async function getMessages(conversationId) {
         ? msg.readBy.map((id) => id.toString())
         : [],
 
-      isDeleted: msg.isDeleted || false,
+      isDeleted: msg.isDeleted === true,
 
       createdAt: msg.createdAt
         ? new Date(msg.createdAt).toISOString()
@@ -136,5 +147,72 @@ export async function getMessages(conversationId) {
   } catch (err) {
     console.error("[ChatAction] getMessages error:", err);
     return [];
+  }
+}
+
+/* -----------------------------------------------------
+ * 3. GET SINGLE CONVERSATION (Socket / Realtime)
+ * ----------------------------------------------------- */
+export async function getConversationById(conversationId) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return null;
+
+  try {
+    await connectDB();
+
+    const conversation = await Conversation.findOne({
+      _id: conversationId,
+      expertId: session.user.id, // ✅ Expert ownership enforced
+    })
+      .populate({
+        path: "userId",
+        model: User,
+        select: "name image isOnline lastSeen",
+      })
+      .lean();
+
+    if (!conversation) return null;
+
+    return JSON.parse(
+      JSON.stringify({
+        _id: conversation._id.toString(),
+
+        userId: conversation.userId?._id.toString(),
+        expertId: conversation.expertId.toString(),
+
+        // ✅ Shared ChatClient contract
+        otherUser: conversation.userId
+          ? {
+              _id: conversation.userId._id.toString(),
+              name: conversation.userId.name,
+              image: conversation.userId.image,
+              profilePicture: conversation.userId.image,
+              isOnline: conversation.userId.isOnline,
+              lastSeen: conversation.userId.lastSeen
+                ? new Date(conversation.userId.lastSeen).toISOString()
+                : null,
+            }
+          : null,
+
+        lastMessage: conversation.lastMessage || null,
+        lastMessageSender: conversation.lastMessageSender
+          ? conversation.lastMessageSender.toString()
+          : null,
+
+        unreadCount: conversation.expertUnreadCount || 0,
+        expertUnreadCount: conversation.expertUnreadCount || 0,
+
+        lastMessageAt: conversation.lastMessageAt
+          ? new Date(conversation.lastMessageAt).toISOString()
+          : null,
+
+        createdAt: conversation.createdAt
+          ? new Date(conversation.createdAt).toISOString()
+          : null,
+      })
+    );
+  } catch (err) {
+    console.error("[ChatAction] getConversationById error:", err);
+    return null;
   }
 }
