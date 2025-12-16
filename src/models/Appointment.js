@@ -40,7 +40,15 @@ const AppointmentSchema = new mongoose.Schema(
       enum: ["pending", "paid", "failed", "refunded"],
       default: "pending",
     },
-    meetingLink: { type: String },
+    
+    // REPLACED: meetingLink with meetingId (Crypto ID)
+    meetingId: { 
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true
+    },
+
     cancellationReason: { type: String },
   },
   { timestamps: true }
