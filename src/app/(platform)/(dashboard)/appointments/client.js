@@ -67,7 +67,8 @@ export default function AppointmentsClient({ initialData }) {
 
   const handleJoinCall = appt => {
     if (appt.meetingId) {
-      window.open(`/meet/${appt.meetingId}`, "_blank");
+      // UPDATED: Using unified video-call route
+      window.open(`/video-call/${appt.meetingId}`, "_blank");
       return;
     }
 

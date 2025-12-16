@@ -1,6 +1,13 @@
 /*
  * File: src/components/video/Whiteboard.js
- * FIX: "Line from top-left" bug solved by saving initial coordinates
+ *
+ * FEATURES:
+ * - Fixes "line from top-left" bug (stores initial coords)
+ * - Real-time drawing sync (wb-draw)
+ * - Cursor broadcasting so client sees expert cursor (wb-cursor)
+ * - Throttled cursor emission (~30fps)
+ * - Clean cursor hide on mouse leave / touch end
+ * - Mouse + Touch support
  */
 
 "use client";
@@ -17,30 +24,39 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
   const internalRef = useRef(null);
   const canvas = canvasRef || internalRef;
 
+  const lastEmitRef = useRef(0);
+
   const [isDrawing, setIsDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
   const [tool, setTool] = useState("pen"); // pen | eraser
 
-  /* ---------------- DRAWING ---------------- */
+  /* ----------------------------------------------------
+   * DRAWING
+   * -------------------------------------------------- */
 
   const startDrawing = (e) => {
     const { offsetX, offsetY } = getCoordinates(e);
     setIsDrawing(true);
 
-    // ✅ CRITICAL FIX
+    // ✅ CRITICAL FIX (prevents top-left bug)
     canvas.current.lastX = offsetX;
     canvas.current.lastY = offsetY;
 
-    // Optional: dot on click
+    // Dot on click
     drawLine(offsetX, offsetY, offsetX, offsetY, true);
+
+    emitCursor(offsetX, offsetY);
   };
 
   const draw = (e) => {
+    const { offsetX, offsetY } = getCoordinates(e);
+
+    // Emit cursor even when not drawing
+    emitCursor(offsetX, offsetY);
+
     if (!isDrawing) return;
 
-    const { offsetX, offsetY } = getCoordinates(e);
     const { lastX, lastY } = canvas.current;
-
     if (lastX == null || lastY == null) return;
 
     drawLine(lastX, lastY, offsetX, offsetY, true);
@@ -53,6 +69,12 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     setIsDrawing(false);
     canvas.current.lastX = null;
     canvas.current.lastY = null;
+
+    // Hide cursor on leave / end
+    socket?.emit("wb-cursor", {
+      roomId,
+      hidden: true,
+    });
   };
 
   const drawLine = (x0, y0, x1, y1, emit) => {
@@ -82,10 +104,34 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     }
   };
 
-  /* ---------------- HELPERS ---------------- */
+  /* ----------------------------------------------------
+   * CURSOR EMISSION
+   * -------------------------------------------------- */
+
+  const emitCursor = (x, y) => {
+    if (!socket || !canvas.current) return;
+
+    const now = Date.now();
+    if (now - lastEmitRef.current < 30) return;
+
+    const w = canvas.current.width;
+    const h = canvas.current.height;
+
+    socket.emit("wb-cursor", {
+      roomId,
+      x: x / w,
+      y: y / h,
+    });
+
+    lastEmitRef.current = now;
+  };
+
+  /* ----------------------------------------------------
+   * HELPERS
+   * -------------------------------------------------- */
 
   const getCoordinates = (e) => {
-    if (e.nativeEvent.touches?.length) {
+    if (e.nativeEvent?.touches?.length) {
       const rect = canvas.current.getBoundingClientRect();
       return {
         offsetX: e.nativeEvent.touches[0].clientX - rect.left,
@@ -93,13 +139,23 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
       };
     }
 
+    if (e.changedTouches?.length) {
+      const rect = canvas.current.getBoundingClientRect();
+      return {
+        offsetX: e.changedTouches[0].clientX - rect.left,
+        offsetY: e.changedTouches[0].clientY - rect.top,
+      };
+    }
+
     return {
-      offsetX: e.nativeEvent.offsetX ?? 0,
-      offsetY: e.nativeEvent.offsetY ?? 0,
+      offsetX: e.nativeEvent?.offsetX ?? 0,
+      offsetY: e.nativeEvent?.offsetY ?? 0,
     };
   };
 
-  /* ---------------- RESIZE ---------------- */
+  /* ----------------------------------------------------
+   * RESIZE (preserves drawing)
+   * -------------------------------------------------- */
 
   useEffect(() => {
     const handleResize = () => {
@@ -121,8 +177,13 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
 
     window.addEventListener("resize", handleResize);
     setTimeout(handleResize, 100);
+
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  /* ----------------------------------------------------
+   * CLEAR BOARD
+   * -------------------------------------------------- */
 
   const clearBoard = () => {
     const ctx = canvas.current.getContext("2d");
@@ -131,7 +192,9 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     socket?.emit("wb-clear", roomId);
   };
 
-  /* ---------------- UI ---------------- */
+  /* ----------------------------------------------------
+   * UI
+   * -------------------------------------------------- */
 
   return (
     <div
@@ -161,7 +224,9 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
             }}
             className={cn(
               "w-6 h-6 rounded-full transition-transform hover:scale-110",
-              color === c && tool === "pen" && "ring-2 ring-offset-2 ring-zinc-400"
+              color === c &&
+                tool === "pen" &&
+                "ring-2 ring-offset-2 ring-zinc-400"
             )}
             style={{ backgroundColor: c }}
           />
