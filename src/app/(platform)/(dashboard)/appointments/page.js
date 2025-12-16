@@ -1,6 +1,8 @@
 import { getExpertAppointments } from "@/actions/appointments";
 import AppointmentsClient from "./client";
 
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Appointments | Dashboard",
 };

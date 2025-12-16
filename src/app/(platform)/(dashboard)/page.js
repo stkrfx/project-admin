@@ -8,6 +8,8 @@ import {
 import Link from "next/link";
 import { redirect } from "next/navigation"; // ✅ REQUIRED FIX
 
+export const dynamic = "force-dynamic";
+
 // Mock Data (temporary)
 const mockStats = [
   { name: "Total Revenue", value: "$0.00", icon: DollarSign, color: "text-emerald-500" },
