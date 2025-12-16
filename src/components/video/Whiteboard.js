@@ -1,13 +1,10 @@
 /*
  * File: src/components/video/Whiteboard.js
- *
- * FEATURES:
- * - Fixes "line from top-left" bug (stores initial coords)
- * - Real-time drawing sync (wb-draw)
- * - Cursor broadcasting so client sees expert cursor (wb-cursor)
+ * FIXED (Expert Side):
  * - Throttled cursor emission (~30fps)
- * - Clean cursor hide on mouse leave / touch end
- * - Mouse + Touch support
+ * - Cursor visible even when hovering (not drawing)
+ * - Cursor properly hidden on mouse leave / touch end
+ * - Matches User-side Whiteboard behavior exactly
  */
 
 "use client";
@@ -28,30 +25,26 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
 
   const [isDrawing, setIsDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
-  const [tool, setTool] = useState("pen"); // pen | eraser
+  const [tool, setTool] = useState("pen");
 
-  /* ----------------------------------------------------
-   * DRAWING
-   * -------------------------------------------------- */
+  /* ---------------- DRAWING ---------------- */
 
   const startDrawing = (e) => {
     const { offsetX, offsetY } = getCoordinates(e);
     setIsDrawing(true);
 
-    // ✅ CRITICAL FIX (prevents top-left bug)
     canvas.current.lastX = offsetX;
     canvas.current.lastY = offsetY;
 
     // Dot on click
     drawLine(offsetX, offsetY, offsetX, offsetY, true);
-
     emitCursor(offsetX, offsetY);
   };
 
-  const draw = (e) => {
+  const handleMove = (e) => {
     const { offsetX, offsetY } = getCoordinates(e);
 
-    // Emit cursor even when not drawing
+    // ✅ Cursor moves even when NOT drawing
     emitCursor(offsetX, offsetY);
 
     if (!isDrawing) return;
@@ -70,7 +63,7 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     canvas.current.lastX = null;
     canvas.current.lastY = null;
 
-    // Hide cursor on leave / end
+    // ✅ Hide cursor
     socket?.emit("wb-cursor", {
       roomId,
       hidden: true,
@@ -104,9 +97,7 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     }
   };
 
-  /* ----------------------------------------------------
-   * CURSOR EMISSION
-   * -------------------------------------------------- */
+  /* ---------------- CURSOR ---------------- */
 
   const emitCursor = (x, y) => {
     if (!socket || !canvas.current) return;
@@ -126,9 +117,7 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     lastEmitRef.current = now;
   };
 
-  /* ----------------------------------------------------
-   * HELPERS
-   * -------------------------------------------------- */
+  /* ---------------- HELPERS ---------------- */
 
   const getCoordinates = (e) => {
     if (e.nativeEvent?.touches?.length) {
@@ -153,9 +142,7 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     };
   };
 
-  /* ----------------------------------------------------
-   * RESIZE (preserves drawing)
-   * -------------------------------------------------- */
+  /* ---------------- RESIZE ---------------- */
 
   useEffect(() => {
     const handleResize = () => {
@@ -181,9 +168,7 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  /* ----------------------------------------------------
-   * CLEAR BOARD
-   * -------------------------------------------------- */
+  /* ---------------- CLEAR ---------------- */
 
   const clearBoard = () => {
     const ctx = canvas.current.getContext("2d");
@@ -192,9 +177,7 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     socket?.emit("wb-clear", roomId);
   };
 
-  /* ----------------------------------------------------
-   * UI
-   * -------------------------------------------------- */
+  /* ---------------- UI ---------------- */
 
   return (
     <div
@@ -204,11 +187,11 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
       <canvas
         ref={canvas}
         onMouseDown={startDrawing}
-        onMouseMove={draw}
+        onMouseMove={handleMove}
         onMouseUp={stopDrawing}
         onMouseOut={stopDrawing}
         onTouchStart={startDrawing}
-        onTouchMove={draw}
+        onTouchMove={handleMove}
         onTouchEnd={stopDrawing}
         className="block w-full h-full touch-none"
       />
