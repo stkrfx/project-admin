@@ -1,10 +1,17 @@
 /*
  * File: src/components/video/Whiteboard.js
- * FIXED (Expert Side):
+ *
+ * EXPERT SIDE – FINAL VERSION
+ * ----------------------------------------
+ * FEATURES:
+ * - Realtime drawing sync (wb-draw)
  * - Throttled cursor emission (~30fps)
  * - Cursor visible even when hovering (not drawing)
- * - Cursor properly hidden on mouse leave / touch end
- * - Matches User-side Whiteboard behavior exactly
+ * - Clean cursor hide on mouse leave / touch end
+ * - Local expert watermark follows cursor instantly (no socket delay)
+ * - Resize-safe redraw
+ * - White background preserved
+ * - Matches User-side behavior exactly
  */
 
 "use client";
@@ -14,11 +21,21 @@ import { Eraser, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
+/* ----------------------------------------
+ * Config
+ * -------------------------------------- */
+
 const COLORS = ["#000000", "#e11d48", "#2563eb", "#16a34a", "#d97706"];
+const EXPERT_WATERMARK_URL = "https://github.com/shadcn.png"; // replace with your logo
+
+/* ----------------------------------------
+ * Component
+ * -------------------------------------- */
 
 export default function Whiteboard({ socket, roomId, canvasRef }) {
   const containerRef = useRef(null);
   const internalRef = useRef(null);
+  const cursorRef = useRef(null);
   const canvas = canvasRef || internalRef;
 
   const lastEmitRef = useRef(0);
@@ -27,7 +44,9 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
   const [color, setColor] = useState("#000000");
   const [tool, setTool] = useState("pen");
 
-  /* ---------------- DRAWING ---------------- */
+  /* ----------------------------------------
+   * Drawing Start
+   * -------------------------------------- */
 
   const startDrawing = (e) => {
     const { offsetX, offsetY } = getCoordinates(e);
@@ -36,15 +55,22 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     canvas.current.lastX = offsetX;
     canvas.current.lastY = offsetY;
 
-    // Dot on click
+    updateLocalCursor(offsetX, offsetY, true);
     drawLine(offsetX, offsetY, offsetX, offsetY, true);
     emitCursor(offsetX, offsetY);
   };
 
+  /* ----------------------------------------
+   * Pointer Move
+   * -------------------------------------- */
+
   const handleMove = (e) => {
     const { offsetX, offsetY } = getCoordinates(e);
 
-    // ✅ Cursor moves even when NOT drawing
+    // Local visual cursor (instant)
+    updateLocalCursor(offsetX, offsetY, true);
+
+    // Network cursor (throttled)
     emitCursor(offsetX, offsetY);
 
     if (!isDrawing) return;
@@ -53,22 +79,33 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     if (lastX == null || lastY == null) return;
 
     drawLine(lastX, lastY, offsetX, offsetY, true);
-
     canvas.current.lastX = offsetX;
     canvas.current.lastY = offsetY;
   };
+
+  /* ----------------------------------------
+   * Stop / Leave
+   * -------------------------------------- */
 
   const stopDrawing = () => {
     setIsDrawing(false);
     canvas.current.lastX = null;
     canvas.current.lastY = null;
+  };
 
-    // ✅ Hide cursor
+  const handleLeave = () => {
+    stopDrawing();
+    hideLocalCursor();
+
     socket?.emit("wb-cursor", {
       roomId,
       hidden: true,
     });
   };
+
+  /* ----------------------------------------
+   * Drawing Core
+   * -------------------------------------- */
 
   const drawLine = (x0, y0, x1, y1, emit) => {
     const ctx = canvas.current.getContext("2d");
@@ -97,7 +134,9 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     }
   };
 
-  /* ---------------- CURSOR ---------------- */
+  /* ----------------------------------------
+   * Cursor Emit (Network)
+   * -------------------------------------- */
 
   const emitCursor = (x, y) => {
     if (!socket || !canvas.current) return;
@@ -117,7 +156,31 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     lastEmitRef.current = now;
   };
 
-  /* ---------------- HELPERS ---------------- */
+  /* ----------------------------------------
+   * Local Cursor (DOM)
+   * -------------------------------------- */
+
+  const updateLocalCursor = (x, y, visible) => {
+    if (!cursorRef.current) return;
+
+    if (!visible) {
+      cursorRef.current.style.opacity = "0";
+      return;
+    }
+
+    cursorRef.current.style.opacity = "0.7";
+    cursorRef.current.style.transform = `translate(${x + 10}px, ${y + 10}px)`;
+  };
+
+  const hideLocalCursor = () => {
+    if (cursorRef.current) {
+      cursorRef.current.style.opacity = "0";
+    }
+  };
+
+  /* ----------------------------------------
+   * Coordinates Helper
+   * -------------------------------------- */
 
   const getCoordinates = (e) => {
     if (e.nativeEvent?.touches?.length) {
@@ -142,7 +205,9 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     };
   };
 
-  /* ---------------- RESIZE ---------------- */
+  /* ----------------------------------------
+   * Resize Safe Redraw
+   * -------------------------------------- */
 
   useEffect(() => {
     const handleResize = () => {
@@ -168,7 +233,9 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  /* ---------------- CLEAR ---------------- */
+  /* ----------------------------------------
+   * Clear Board
+   * -------------------------------------- */
 
   const clearBoard = () => {
     const ctx = canvas.current.getContext("2d");
@@ -177,7 +244,9 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     socket?.emit("wb-clear", roomId);
   };
 
-  /* ---------------- UI ---------------- */
+  /* ----------------------------------------
+   * UI
+   * -------------------------------------- */
 
   return (
     <div
@@ -189,11 +258,20 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
         onMouseDown={startDrawing}
         onMouseMove={handleMove}
         onMouseUp={stopDrawing}
-        onMouseOut={stopDrawing}
+        onMouseOut={handleLeave}
         onTouchStart={startDrawing}
         onTouchMove={handleMove}
-        onTouchEnd={stopDrawing}
+        onTouchEnd={handleLeave}
         className="block w-full h-full touch-none"
+      />
+
+      {/* LOCAL EXPERT WATERMARK */}
+      <img
+        ref={cursorRef}
+        src={EXPERT_WATERMARK_URL}
+        alt="Expert Cursor"
+        className="absolute w-8 h-8 rounded-full border-2 border-indigo-500 shadow-md pointer-events-none transition-opacity duration-150 z-50 opacity-0"
+        style={{ top: 0, left: 0, willChange: "transform" }}
       />
 
       {/* TOOLBAR */}
