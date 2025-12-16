@@ -84,7 +84,7 @@ export default function MeetPage() {
          * 1. CONNECT TO USER SOCKET
          * ----------------------------- */
         const SOCKET_URL =
-          process.env.NEXT_PUBLIC_USER_APP_URL || "http://localhost:3000";
+          process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || "http://localhost:3000";
 
         const socket = io(SOCKET_URL, {
           path: "/api/socket_io",
