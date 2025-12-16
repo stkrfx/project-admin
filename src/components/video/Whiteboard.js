@@ -1,6 +1,6 @@
 /*
  * File: src/components/video/Whiteboard.js
- * ROLE: Shared Whiteboard (Expert Side)
+ * FIX: "Line from top-left" bug solved by saving initial coordinates
  */
 
 "use client";
@@ -15,28 +15,36 @@ const COLORS = ["#000000", "#e11d48", "#2563eb", "#16a34a", "#d97706"];
 export default function Whiteboard({ socket, roomId, canvasRef }) {
   const containerRef = useRef(null);
   const internalRef = useRef(null);
-  // Use passed ref or internal fallback
   const canvas = canvasRef || internalRef;
 
   const [isDrawing, setIsDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
   const [tool, setTool] = useState("pen"); // pen | eraser
 
-  // --- DRAWING LOGIC ---
+  /* ---------------- DRAWING ---------------- */
+
   const startDrawing = (e) => {
     const { offsetX, offsetY } = getCoordinates(e);
     setIsDrawing(true);
-    drawLine(offsetX, offsetY, offsetX, offsetY, true); // Dot
+
+    // ✅ CRITICAL FIX
+    canvas.current.lastX = offsetX;
+    canvas.current.lastY = offsetY;
+
+    // Optional: dot on click
+    drawLine(offsetX, offsetY, offsetX, offsetY, true);
   };
 
   const draw = (e) => {
     if (!isDrawing) return;
+
     const { offsetX, offsetY } = getCoordinates(e);
     const { lastX, lastY } = canvas.current;
-    
+
+    if (lastX == null || lastY == null) return;
+
     drawLine(lastX, lastY, offsetX, offsetY, true);
-    
-    // Save current pos
+
     canvas.current.lastX = offsetX;
     canvas.current.lastY = offsetY;
   };
@@ -52,7 +60,6 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     const w = canvas.current.width;
     const h = canvas.current.height;
 
-    // Drawing settings
     ctx.strokeStyle = tool === "eraser" ? "#ffffff" : color;
     ctx.lineWidth = tool === "eraser" ? 20 : 2;
     ctx.lineCap = "round";
@@ -63,7 +70,6 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     ctx.stroke();
 
     if (emit && socket) {
-      // Normalize coordinates (0-1) for responsiveness
       socket.emit("wb-draw", {
         roomId,
         x0: x0 / w,
@@ -71,53 +77,50 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
         x1: x1 / w,
         y1: y1 / h,
         color: ctx.strokeStyle,
-        width: ctx.lineWidth
+        width: ctx.lineWidth,
       });
     }
   };
 
-  // Helper: Get Touch/Mouse Coordinates
+  /* ---------------- HELPERS ---------------- */
+
   const getCoordinates = (e) => {
-    // Mobile Touch Support
-    if (e.nativeEvent.touches && e.nativeEvent.touches.length > 0) {
+    if (e.nativeEvent.touches?.length) {
       const rect = canvas.current.getBoundingClientRect();
       return {
         offsetX: e.nativeEvent.touches[0].clientX - rect.left,
-        offsetY: e.nativeEvent.touches[0].clientY - rect.top
+        offsetY: e.nativeEvent.touches[0].clientY - rect.top,
       };
     }
-    // Desktop Mouse Support
-    return { 
-        offsetX: e.nativeEvent.offsetX || 0, 
-        offsetY: e.nativeEvent.offsetY || 0 
+
+    return {
+      offsetX: e.nativeEvent.offsetX ?? 0,
+      offsetY: e.nativeEvent.offsetY ?? 0,
     };
   };
 
-  // --- RESIZE HANDLER ---
+  /* ---------------- RESIZE ---------------- */
+
   useEffect(() => {
     const handleResize = () => {
-        if (canvas.current && containerRef.current) {
-            // 1. Save image data
-            const tempCanvas = document.createElement("canvas");
-            const tempCtx = tempCanvas.getContext("2d");
-            tempCanvas.width = canvas.current.width;
-            tempCanvas.height = canvas.current.height;
-            tempCtx.drawImage(canvas.current, 0, 0);
+      if (!canvas.current || !containerRef.current) return;
 
-            // 2. Resize
-            canvas.current.width = containerRef.current.offsetWidth;
-            canvas.current.height = containerRef.current.offsetHeight;
+      const temp = document.createElement("canvas");
+      temp.width = canvas.current.width;
+      temp.height = canvas.current.height;
+      temp.getContext("2d").drawImage(canvas.current, 0, 0);
 
-            // 3. Restore & White BG
-            const ctx = canvas.current.getContext("2d");
-            ctx.fillStyle = "#ffffff";
-            ctx.fillRect(0, 0, canvas.current.width, canvas.current.height);
-            ctx.drawImage(tempCanvas, 0, 0, canvas.current.width, canvas.current.height);
-        }
+      canvas.current.width = containerRef.current.offsetWidth;
+      canvas.current.height = containerRef.current.offsetHeight;
+
+      const ctx = canvas.current.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.current.width, canvas.current.height);
+      ctx.drawImage(temp, 0, 0, canvas.current.width, canvas.current.height);
     };
 
     window.addEventListener("resize", handleResize);
-    setTimeout(handleResize, 100); // Initial sizing
+    setTimeout(handleResize, 100);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
@@ -125,11 +128,16 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
     const ctx = canvas.current.getContext("2d");
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.current.width, canvas.current.height);
-    if (socket) socket.emit("wb-clear", roomId);
+    socket?.emit("wb-clear", roomId);
   };
 
+  /* ---------------- UI ---------------- */
+
   return (
-    <div ref={containerRef} className="relative w-full h-full bg-white cursor-crosshair touch-none overflow-hidden rounded-xl border border-zinc-200">
+    <div
+      ref={containerRef}
+      className="relative w-full h-full bg-white cursor-crosshair touch-none overflow-hidden rounded-xl border border-zinc-200"
+    >
       <canvas
         ref={canvas}
         onMouseDown={startDrawing}
@@ -142,17 +150,18 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
         className="block w-full h-full touch-none"
       />
 
-      {/* FLOATING TOOLBAR */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur border border-zinc-200 shadow-lg rounded-full p-1.5 flex items-center gap-1 sm:gap-2 z-10">
-        
-        {/* Colors */}
+      {/* TOOLBAR */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur border border-zinc-200 shadow-lg rounded-full p-2 flex items-center gap-2 z-10">
         {COLORS.map((c) => (
           <button
             key={c}
-            onClick={() => { setColor(c); setTool("pen"); }}
+            onClick={() => {
+              setColor(c);
+              setTool("pen");
+            }}
             className={cn(
-              "w-6 h-6 rounded-full border transition-transform hover:scale-110",
-              color === c && tool === "pen" ? "ring-2 ring-offset-1 ring-zinc-400 scale-110" : "border-transparent"
+              "w-6 h-6 rounded-full transition-transform hover:scale-110",
+              color === c && tool === "pen" && "ring-2 ring-offset-2 ring-zinc-400"
             )}
             style={{ backgroundColor: c }}
           />
@@ -160,7 +169,6 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
 
         <div className="w-px h-6 bg-zinc-200 mx-1" />
 
-        {/* Tools */}
         <Button
           size="icon"
           variant={tool === "eraser" ? "secondary" : "ghost"}
@@ -173,7 +181,7 @@ export default function Whiteboard({ socket, roomId, canvasRef }) {
         <Button
           size="icon"
           variant="ghost"
-          className="h-8 w-8 rounded-full text-red-600 hover:bg-red-50 hover:text-red-700"
+          className="h-8 w-8 rounded-full text-red-600 hover:bg-red-50"
           onClick={clearBoard}
         >
           <Trash2 className="h-4 w-4" />

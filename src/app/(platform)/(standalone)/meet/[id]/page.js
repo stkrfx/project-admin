@@ -45,6 +45,7 @@ export default function MeetPage() {
 
   // --- SOCKET & WEBRTC SETUP ---
   useEffect(() => {
+    
     if (!appointmentId || socketRef.current) return;
 
     setCallState(VIDEO_STATE.CONNECTING);
@@ -182,15 +183,15 @@ export default function MeetPage() {
 
   if (callState === VIDEO_STATE.PENDING || callState === VIDEO_STATE.CONNECTING) {
       return (
-          <div className="flex h-[100dvh] items-center justify-center bg-zinc-950 flex-col">
+          <div className="flex h-[calc(100dvh-4rem)] items-center justify-center bg-zinc-950 flex-col">
               <Loader2 className="h-10 w-10 text-indigo-500 animate-spin mb-4" />
-              <p className="text-zinc-400">Securely connecting to session...</p>
+              <p className="text-zinc-400">Securely connecting to session…</p>
           </div>
       );
   }
 
   return (
-    <div className="flex flex-col lg:flex-row h-[100dvh] bg-zinc-950 overflow-hidden">
+    <div className="flex flex-col lg:flex-row h-[calc(100dvh-4rem)] bg-zinc-950 overflow-hidden">
       
       {/* 1. WHITEBOARD (Main Area)
           Mobile: Bottom half
