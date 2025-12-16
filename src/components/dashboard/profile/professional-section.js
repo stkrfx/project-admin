@@ -103,7 +103,7 @@ export function ProfessionalSection({
                     <CardDescription>Add your roles to calculate total experience.</CardDescription>
                 </div>
             </div>
-            <Button size="sm" onClick={addJob} variant="outline" className="h-9 bg-white hover:bg-emerald-50 hover:text-emerald-700 border-zinc-200 shadow-sm text-zinc-700">
+            <Button type="button" size="sm" onClick={addJob} variant="outline" className="h-9 bg-white hover:bg-emerald-50 hover:text-emerald-700 border-zinc-200 shadow-sm text-zinc-700">
                 <Plus className="h-3.5 w-3.5 mr-2"/> Add Role
             </Button>
         </CardHeader>
@@ -122,7 +122,7 @@ export function ProfessionalSection({
                             <div className="absolute left-[13px] top-6 w-3.5 h-3.5 rounded-full border-2 border-white bg-emerald-500 shadow-sm hidden md:block z-10 ring-1 ring-emerald-100"></div>
                             
                             <div className="p-5 border border-zinc-200 rounded-xl bg-white relative group hover:border-emerald-300 hover:shadow-md transition-all">
-                                <Button variant="ghost" size="icon" onClick={() => removeJob(i)} className="absolute top-2 right-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all">
+                                <Button type="button" variant="ghost" size="icon" onClick={() => removeJob(i)} className="absolute top-2 right-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all">
                                     <Trash2 className="h-4 w-4"/>
                                 </Button>
 
@@ -172,12 +172,12 @@ export function ProfessionalSection({
                 <div className="h-10 w-10 bg-white rounded-xl border border-zinc-200 flex items-center justify-center shadow-sm text-blue-600"><GraduationCap className="h-5 w-5" /></div>
                 <div><CardTitle className="text-lg font-bold text-zinc-900">Education</CardTitle><CardDescription>Academic background and certifications.</CardDescription></div>
             </div>
-            <Button size="sm" onClick={addEdu} variant="outline" className="h-9 bg-white hover:bg-blue-50 hover:text-blue-700 border-zinc-200 shadow-sm text-zinc-700"><Plus className="h-3.5 w-3.5 mr-2"/> Add Degree</Button>
+            <Button type="button" size="sm" onClick={addEdu} variant="outline" className="h-9 bg-white hover:bg-blue-50 hover:text-blue-700 border-zinc-200 shadow-sm text-zinc-700"><Plus className="h-3.5 w-3.5 mr-2"/> Add Degree</Button>
         </CardHeader>
         <CardContent className="p-6 md:p-8 space-y-6">
             {education.map((edu, i) => (
                 <div key={i} className="p-5 border border-zinc-200 rounded-xl bg-white space-y-4 relative group hover:border-blue-300 hover:shadow-md transition-all">
-                    <Button variant="ghost" size="icon" onClick={() => removeEdu(i)} className="absolute top-2 right-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="h-4 w-4"/></Button>
+                    <Button type="button" variant="ghost" size="icon" onClick={() => removeEdu(i)} className="absolute top-2 right-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"><Trash2 className="h-4 w-4"/></Button>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-4">
                         <div className="space-y-1.5"><Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Institution</Label><Input value={edu.institution || ""} onChange={(e) => updateEdu(i, 'institution', e.target.value)} placeholder="e.g. Harvard University" className="h-10 border-zinc-200 focus:ring-blue-500"/></div>
                         <div className="space-y-1.5"><Label className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">Degree</Label><div className="relative"><Award className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" /><Input value={edu.degree || ""} onChange={(e) => updateEdu(i, 'degree', e.target.value)} placeholder="e.g. B.Sc, PhD" className="pl-9 h-10 border-zinc-200 focus:ring-blue-500"/></div></div>

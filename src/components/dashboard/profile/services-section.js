@@ -88,7 +88,7 @@ export function ServicesSection({ services, setServices, errors = {} }) {
             </div>
           </div>
 
-          <Button
+          <Button type="button"
             size="sm"
             onClick={addService}
             className="h-9 bg-zinc-900 text-white hover:bg-zinc-800 shadow-sm"
@@ -110,7 +110,7 @@ export function ServicesSection({ services, setServices, errors = {} }) {
               <p className="text-xs text-zinc-500 max-w-xs mt-1 mb-4">
                 Start earning by adding your first consultation service.
               </p>
-              <Button variant="outline" onClick={addService} className="h-9 text-xs">
+              <Button type="button" variant="outline" onClick={addService} className="h-9 text-xs">
                 Create Service
               </Button>
             </div>
@@ -122,7 +122,7 @@ export function ServicesSection({ services, setServices, errors = {} }) {
                   className="group relative bg-white border border-zinc-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-zinc-300 transition-all duration-300"
                 >
                   <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                    <Button
+                    <Button type="button"
                       variant="ghost"
                       size="icon"
                       onClick={() => removeService(i)}
