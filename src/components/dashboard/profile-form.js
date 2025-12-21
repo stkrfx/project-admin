@@ -38,6 +38,7 @@ const FIELD_TO_TAB = {
   website: "identity",
   specialization: "professional",
   bio: "professional",
+  introVideo: "professional",
   workHistory: "professional",
   education: "professional",
   tags: "professional",
