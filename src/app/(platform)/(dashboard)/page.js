@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation"; // ✅ REQUIRED FIX
+import VisitingCard from "@/components/dashboard/VisitingCard";
 
 export const dynamic = "force-dynamic";
 
@@ -141,68 +142,93 @@ export default async function DashboardPage() {
   }
 
   /* ---------------------------------------------------------
-   * STATE 4: VERIFIED EXPERT DASHBOARD
-   * --------------------------------------------------------- */
-  return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+ * STATE 4: VERIFIED EXPERT DASHBOARD
+ * --------------------------------------------------------- */
+return (
+  <div className="space-y-8 animate-in fade-in duration-500">
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight text-zinc-900">Overview</h2>
-          <p className="text-zinc-500">Here's what's happening with your business.</p>
-        </div>
+    {/* Header */}
+    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div>
+        <h2 className="text-3xl font-bold tracking-tight text-zinc-900">
+          Overview
+        </h2>
+        <p className="text-zinc-500">
+          Here's what's happening with your business.
+        </p>
+      </div>
 
+      <div className="flex items-center gap-3">
+        {/* ✅ Visiting Card Download Button */}
+        {status === "LIVE" && profile && (
+          <VisitingCard profile={profile} />
+        )}
+
+        {/* Verified Badge */}
         <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 border border-emerald-100 rounded-full text-emerald-700 text-sm font-medium">
-          <ShieldCheck className="h-4 w-4" /> Verified Expert
+          <ShieldCheck className="h-4 w-4" />
+          Verified Expert
         </div>
       </div>
-
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-3">
-        {mockStats.map((stat) => (
-          <Card key={stat.name} className="border-zinc-200 shadow-sm hover:shadow-md transition-shadow">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm text-zinc-500">{stat.name}</CardTitle>
-              <stat.icon className={`h-4 w-4 ${stat.color}`} />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-zinc-900">{stat.value}</div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Pending Update Banner */}
-      {profile?.hasPendingUpdates && ( // ✅ SAFE FIX
-        <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3 text-blue-800">
-          <Clock className="h-5 w-5 mt-0.5" />
-          <div>
-            <p className="font-semibold">Update Pending</p>
-            <p className="text-sm text-blue-700/80">
-              Your profile changes are awaiting admin approval.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Appointments Empty State */}
-      <Card className="border-dashed border-2 shadow-none bg-zinc-50/50">
-        <CardContent className="flex flex-col items-center justify-center py-16 text-center space-y-4">
-          <div className="h-12 w-12 bg-white rounded-full flex items-center justify-center shadow-sm border border-zinc-100">
-            <CalendarCheck className="h-6 w-6 text-zinc-300" />
-          </div>
-
-          <p className="text-zinc-900 font-medium">No upcoming appointments</p>
-          <p className="text-zinc-500 text-sm">Share your profile to get booked.</p>
-
-          <Button variant="outline" asChild>
-            <Link href="/profile">Manage Availability</Link>
-          </Button>
-        </CardContent>
-      </Card>
     </div>
-  );
+
+    {/* Stats */}
+    <div className="grid gap-4 md:grid-cols-3">
+      {mockStats.map((stat) => (
+        <Card
+          key={stat.name}
+          className="border-zinc-200 shadow-sm hover:shadow-md transition-shadow"
+        >
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm text-zinc-500">
+              {stat.name}
+            </CardTitle>
+            <stat.icon className={`h-4 w-4 ${stat.color}`} />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-zinc-900">
+              {stat.value}
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+
+    {/* Pending Update Banner */}
+    {profile?.hasPendingUpdates && (
+      <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3 text-blue-800">
+        <Clock className="h-5 w-5 mt-0.5" />
+        <div>
+          <p className="font-semibold">Update Pending</p>
+          <p className="text-sm text-blue-700/80">
+            Your profile changes are awaiting admin approval.
+          </p>
+        </div>
+      </div>
+    )}
+
+    {/* Empty Appointments */}
+    <Card className="border-dashed border-2 shadow-none bg-zinc-50/50">
+      <CardContent className="flex flex-col items-center justify-center py-16 text-center space-y-4">
+        <div className="h-12 w-12 bg-white rounded-full flex items-center justify-center shadow-sm border border-zinc-100">
+          <CalendarCheck className="h-6 w-6 text-zinc-300" />
+        </div>
+
+        <p className="text-zinc-900 font-medium">
+          No upcoming appointments
+        </p>
+        <p className="text-zinc-500 text-sm">
+          Share your profile to get booked.
+        </p>
+
+        <Button variant="outline" asChild>
+          <Link href="/profile">Manage Availability</Link>
+        </Button>
+      </CardContent>
+    </Card>
+  </div>
+);
+
 }
 
 /* ----------------------------- Helper Component ----------------------------- */

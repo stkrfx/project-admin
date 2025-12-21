@@ -95,4 +95,18 @@ export const ourFileRouter = {
         name: file.name,
       };
     }),
+
+    /* -------------------------
+   * ⭐ NEW: Intro Video
+   * ------------------------- */
+  introVideo: f({
+    video: { maxFileSize: "128MB", maxFileCount: 1 },
+  })
+    .middleware(async () => await handleAuth())
+    .onUploadComplete(async ({ metadata, file }) => {
+      return {
+        uploadedBy: metadata.userId,
+        url: file.url,
+      };
+    }),
 };

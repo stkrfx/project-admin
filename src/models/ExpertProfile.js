@@ -90,6 +90,7 @@ const ExpertProfileSchema = new mongoose.Schema(
 
     // -------------------- IDENTITY --------------------
     bio: { type: String, trim: true, maxlength: 2000, default: "" },
+    introVideo: { type: String, default: "" }, // ⭐ NEW FIELD
     gender: {
       type: String,
       enum: ["Male", "Female", "Non-Binary", "Prefer not to say", ""],
@@ -131,6 +132,7 @@ const ExpertProfileSchema = new mongoose.Schema(
       username: String,
       image: String,
       bio: String,
+      introVideo: { type: String, default: "" }, // ⭐ NEW FIELD
       specialization: String,
       timezone: String,
       gender: String,

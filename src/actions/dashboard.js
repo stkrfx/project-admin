@@ -11,9 +11,10 @@ export async function getDashboardContext() {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) return null;
 
-    // Fetch Status Fields
+    // Fetch Profile and populate the 'user' field to get name and image
     const profile = await ExpertProfile.findOne({ user: session.user.id })
-      .select("isVetted hasPendingUpdates isOnboarded rejectionReason bio services documents draft startingPrice");
+      .populate("user", "name image") // Get name and image from User collection
+      .select("isVetted hasPendingUpdates isOnboarded rejectionReason bio services specialization documents");
 
     // Case 0: No Profile (Should be created on login, but just in case)
     if (!profile) return { status: "NEW_USER" };
@@ -87,12 +88,9 @@ export async function getDashboardContext() {
         isComplete: progress >= 99 
       },
       notifications,
-      profile: JSON.parse(JSON.stringify(profile)), // Pass verified data for badges
-      stats: { // Placeholder stats
-        revenue: 0,
-        appointments: 0,
-        clients: 0 
-      }
+      // The profile._id here is the ExpertProfile collection ID
+      profile: JSON.parse(JSON.stringify(profile)), 
+      stats: { revenue: 0, appointments: 0, clients: 0 }
     };
 
   } catch (error) {

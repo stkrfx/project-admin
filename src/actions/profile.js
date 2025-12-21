@@ -45,6 +45,7 @@ const ServiceItemSchema = z
 const ProfileSchema = z.object({
   // Identity
   image: z.string().min(1, "Profile picture is required"),
+  introVideo: z.string().optional().or(z.literal("")), // ⭐ NEW
   name: z.string().min(2, "Name is required"),
   username: z
     .string()
@@ -147,6 +148,7 @@ export async function updateProfile(prevState, formData) {
     const rawData = {
       // Identity
       image: formData.get("image"),
+      introVideo: formData.get("introVideo"), // ⭐ NEW
       name: formData.get("name"),
       username: formData.get("username"),
       gender: formData.get("gender"),
@@ -239,7 +241,7 @@ export async function updateProfile(prevState, formData) {
         name: data.name,
         username: data.username,
         image: formData.get("image"),
-
+        introVideo: data.introVideo, // ⭐ NEW
         bio: data.bio,
         specialization: data.specialization,
         gender: data.gender,

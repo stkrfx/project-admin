@@ -1,3 +1,11 @@
-import { generateReactHelpers } from "@uploadthing/react";
-
-export const { useUploadThing, uploadFiles } = generateReactHelpers();
+// src/lib/uploadthing.js
+import {
+    generateUploadButton,
+    generateUploadDropzone,
+    generateReactHelpers,
+  } from "@uploadthing/react";
+  
+  export const UploadButton = generateUploadButton();
+  export const UploadDropzone = generateUploadDropzone();
+  
+  export const { useUploadThing, uploadFiles } = generateReactHelpers();

@@ -126,6 +126,7 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
   const [userName, setUserName] = useState(draft.name || user.name || "");
   const [userUsername, setUserUsername] = useState(draft.username || user.username || "");
   const [userImage, setUserImage] = useState(draft.image || user.image || "");
+  const [introVideo, setIntroVideo] = useState(expert.introVideo || "");
 
   const [timezone, setTimezone] = useState(expert.timezone || "Australia/Sydney");
   const [bio, setBio] = useState(expert.bio || "");
@@ -153,6 +154,7 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
       userName,
       userUsername,
       userImage,
+      introVideo,
       gender,
       location,
       socialLinks,
@@ -193,6 +195,7 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
     formData.set("name", userName);
     formData.set("username", userUsername);
     formData.set("image", userImage);
+    formData.set("introVideo", introVideo);
     formData.set("timezone", timezone);
     formData.set("gender", gender);
     formData.set("location", location);
@@ -305,6 +308,8 @@ export default function ProfileForm({ initialData, isPending, initialTab }) {
               setEducation={setEducation}
               bio={bio}
               setBio={setBio}
+              introVideo={introVideo}    // ⭐ NEW
+     setIntroVideo={setIntroVideo} // ⭐ NEW
               specialization={specialization}
               setSpecialization={setSpecialization}
               errors={errors} // FIX: Pass errors
