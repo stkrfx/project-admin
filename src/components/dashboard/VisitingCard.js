@@ -4,13 +4,12 @@ import { useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { toPng } from "html-to-image";
 import { Button } from "@/components/ui/button";
-import { Download, ShieldCheck } from "lucide-react";
+import { Download, ShieldCheck, Brain } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export default function VisitingCard({ profile }) {
   const cardRef = useRef(null);
   
-  // ✅ FIX: Use profile._id (Expert Profile ID) instead of User ID
   const publicProfileUrl = `https://digitaloffices.com.au/experts/${profile._id}`;
 
   const downloadCard = async () => {
@@ -19,7 +18,7 @@ export default function VisitingCard({ profile }) {
     try {
       const dataUrl = await toPng(cardRef.current, { 
         cacheBust: true,
-        backgroundColor: '#09090b' // Ensure zinc-950 bg matches capture
+        backgroundColor: '#09090b' 
       });
       const link = document.createElement("a");
       link.download = `${profile.user?.name || 'Expert'}-Card.png`;
@@ -32,7 +31,6 @@ export default function VisitingCard({ profile }) {
 
   return (
     <>
-      {/* Hidden Card Template for capture */}
       <div className="absolute -left-[9999px] top-0 pointer-events-none">
         <div 
           ref={cardRef}
@@ -64,24 +62,39 @@ export default function VisitingCard({ profile }) {
               </p>
             </div>
 
-            <div className="bg-white p-3 rounded-xl shadow-xl shadow-emerald-500/5">
-              <QRCodeSVG value={publicProfileUrl} size={120} level="H" />
+            {/* Updated QR Code with White Icon on Black Rounded Background */}
+            <div className="bg-white p-3 rounded-xl shadow-xl shadow-emerald-500/5 relative">
+              <QRCodeSVG 
+                value={publicProfileUrl} 
+                size={120} 
+                level="H" 
+                includeMargin={false}
+              />
+              <div className="absolute inset-0 flex items-center justify-center">
+                {/* Rounded square container with black background */}
+                <div className="bg-zinc-900 p-1.5 rounded-lg shadow-sm border border-white/10">
+                   {/* White icon */}
+                   <Brain className="h-6 w-6 text-white" />
+                </div>
+              </div>
             </div>
           </div>
 
           <div className="flex justify-between items-end z-10 border-t border-zinc-800/50 pt-6">
-            <div className="space-y-1">
-              <p className="text-[10px] text-zinc-500 uppercase tracking-[0.2em] font-semibold">
-                Official Expert Profile
-              </p>
-              <p className="text-xs text-zinc-400 font-mono opacity-50">ID: {profile._id}</p>
+            <div className="flex items-center gap-2">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-white shadow-sm">
+                <Brain className="h-4 w-4" />
+              </div>
+              <span className="text-lg font-bold tracking-tight text-white">
+                Mindnamo
+              </span>
             </div>
+            
             <p className="text-xs text-zinc-500 italic">Scan to book an appointment</p>
           </div>
         </div>
       </div>
 
-      {/* Visible Download Button */}
       <Button 
         onClick={downloadCard}
         variant="outline" 
