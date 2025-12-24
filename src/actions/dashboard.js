@@ -2,6 +2,7 @@
 
 import connectDB from "@/lib/db";
 import ExpertProfile from "@/models/ExpertProfile";
+import Conversation from "@/models/Conversation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -15,6 +16,11 @@ export async function getDashboardContext() {
     const profile = await ExpertProfile.findOne({ user: session.user.id })
       .populate("user", "name image") // Get name and image from User collection
       .select("isVetted hasPendingUpdates isOnboarded rejectionReason bio services specialization documents");
+
+      // 2. Fetch Conversations for unread counts [!code ++]
+    const conversations = await Conversation.find({  // [!code ++]
+      expertId: session.user.id,                     // [!code ++]
+    }).select("expertUnreadCount").lean();
 
     // Case 0: No Profile (Should be created on login, but just in case)
     if (!profile) return { status: "NEW_USER" };
@@ -88,6 +94,7 @@ export async function getDashboardContext() {
         isComplete: progress >= 99 
       },
       notifications,
+      conversations: JSON.parse(JSON.stringify(conversations)),
       // The profile._id here is the ExpertProfile collection ID
       profile: JSON.parse(JSON.stringify(profile)), 
       stats: { revenue: 0, appointments: 0, clients: 0 }

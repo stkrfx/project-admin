@@ -5,6 +5,7 @@ import { UserNav } from "@/components/dashboard/user-nav";
 import { NotificationsNav } from "@/components/dashboard/notifications-nav";
 import { MobileSidebar } from "@/components/dashboard/mobile-sidebar";
 import { Brain, MessageSquare } from "lucide-react"; // [!code ++]
+import UnreadChatIndicator from "@/components/chat/UnreadChatIndicator";
 import { getDashboardContext } from "@/actions/dashboard";
 
 import connectDB from "@/lib/db";
@@ -77,16 +78,10 @@ export default async function Header() {
       <div className="flex items-center gap-2">
 
         {/* ✅ Chat Button */}
-        <Link
-          href="/chat"
-          className="relative p-2 rounded-full hover:bg-zinc-100 transition-colors text-zinc-600"
-        >
+        <Link href="/chat" className="relative p-2 rounded-full hover:bg-zinc-100 transition-colors text-zinc-600">
           <MessageSquare className="h-5 w-5" />
-          {totalUnread > 0 && (
-            <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white border-2 border-white">
-              {totalUnread > 9 ? "9+" : totalUnread}
-            </span>
-          )}
+          {/* ✅ FIXED: Pass initial server count to the client indicator */}
+          <UnreadChatIndicator initialCount={totalUnread} />
         </Link>
 
         <NotificationsNav data={data?.notifications || []} />

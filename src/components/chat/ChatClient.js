@@ -624,7 +624,7 @@ export default function ChatClient({ initialConversations, currentUser }) {
         } else {
           // ✅ FIXED: Correctly increment sidebar badge for background messages
           const existing = conversations.find(c => c._id === message.conversationId);
-          updates.expertUnreadCount = (existing?.expertUnreadCount || 0) + 1;
+        updates.expertUnreadCount = (existing?.expertUnreadCount || 0) + 1;
         }
       }
 
@@ -643,32 +643,35 @@ export default function ChatClient({ initialConversations, currentUser }) {
 
 
     },
-    [selectedConversationId, currentUser.id, socket, updateChatList]
+    [selectedConversationId, currentUser.id, socket, updateChatList, conversations] 
   );
 
 
   const onMessagesRead = useCallback(
     ({ conversationId, readByUserId }) => {
       // 1. Update message ticks (bubbles)
-      if (conversationId === selectedConversationId) {
-        setMessages(prev =>
-          prev.map(msg =>
-            msg.sender === currentUser.id && !msg.readBy.includes(readByUserId)
-              ? { ...msg, readBy: [...msg.readBy, readByUserId] }
-              : msg
-          )
-        );
-      }
-
-      // 2. ✅ FIXED: Clear YOUR badge (expertUnreadCount) in the sidebar
+    if (conversationId === selectedConversationId) {
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.sender === currentUser.id && !msg.readBy.includes(readByUserId)
+            ? { ...msg, readBy: [...msg.readBy, readByUserId] }
+            : msg
+        )
+      );
+    }
+  
+      // ✅ FIXED: Clear YOUR badge when YOU read the message
       if (readByUserId === currentUser.id) {
         setConversations(prev =>
           prev.map(c =>
             c._id === conversationId ? { ...c, expertUnreadCount: 0 } : c
           )
         );
+        
+        // ✅ This tells Next.js to re-fetch Server Components (like the Header)
+        router.refresh(); // [!code ++]
       }
-      // 3. ✅ FIXED: Clear CLIENT badge (for tick status in sidebar)
+      // Clear Client ticks when they read
       else {
         setConversations(prev =>
           prev.map(c =>
@@ -677,7 +680,7 @@ export default function ChatClient({ initialConversations, currentUser }) {
         );
       }
     },
-    [selectedConversationId, currentUser.id]
+    [selectedConversationId, currentUser.id, router]
   );
 
 
@@ -701,69 +704,44 @@ export default function ChatClient({ initialConversations, currentUser }) {
 
   useEffect(() => {
     if (!selectedConversationId || !socket) return;
-
+  
     initialScrollDone.current = false;
     isInitialLoadPhase.current = true;
     setChatOpacity(0);
-
-    setTimeout(() => {
-      isInitialLoadPhase.current = false;
-    }, 2000);
-
+  
+    setTimeout(() => { isInitialLoadPhase.current = false; }, 2000);
+  
+    // 1. Join and sync status
     socket.emit("join_room", selectedConversationId);
-
-    // [!code ++] Check if ID exists before emitting
     if (remoteUser?._id) {
-      socket.emit("getUserPresence", {
-        userId: remoteUser._id,
-      });
+      socket.emit("getUserPresence", { userId: remoteUser._id });
     }
-
-    // 🔑 FIX: Clear typing indicator in SIDEBAR
+  
+    // 2. IMMEDIATELY clear unread count in local state
     setConversations(prev =>
       prev.map(c =>
         c._id === selectedConversationId
-          ? { ...c, isTyping: false }
+          ? { ...c, expertUnreadCount: 0, isTyping: false }
           : c
       )
     );
-
-    // Clear unread count (Expert)
-    setConversations(prev =>
-      prev.map(c =>
-        c._id === selectedConversationId
-          ? { ...c, expertUnreadCount: 0 }
-          : c
-      )
-    );
-
-    // Clear active chat typing
+  
     setIsTyping(false);
-
+  
+    // 3. Update DB via socket
+    socket.emit("markAsRead", {
+      conversationId: selectedConversationId,
+      userId: currentUser.id,
+    });
+  
+    // 4. Fetch ONLY messages (remove getConversationById fetch here)
     startMessagesTransition(async () => {
       setMessages([]);
-
-      const [history, freshConvo] = await Promise.all([
-        getMessages(selectedConversationId),
-        getConversationById(selectedConversationId),
-      ]);
-
+      const history = await getMessages(selectedConversationId);
       setMessages(history);
-
-      if (freshConvo) {
-        updateChatList({
-          ...freshConvo,
-          conversationId: freshConvo._id,
-        });
-      }
-
-      socket.emit("markAsRead", {
-        conversationId: selectedConversationId,
-        userId: currentUser.id,
-      });
     });
-    // [!code ++] Added remoteUser?._id to dependency array
-  }, [selectedConversationId, currentUser.id, socket, updateChatList, remoteUser?._id]);
+  
+  }, [selectedConversationId, currentUser.id, socket, remoteUser?._id]);
 
 
 
@@ -838,7 +816,7 @@ export default function ChatClient({ initialConversations, currentUser }) {
           <>
             <div className="flex-shrink-0 flex items-center gap-4 px-6 py-4 border-b border-zinc-200 bg-white shadow-sm z-20"><ProfileImage src={remoteUser?.profilePicture} name={remoteUser?.name} sizeClass="h-12 w-12" /><div className="flex-1"><h3 className="font-semibold text-lg text-zinc-900">{remoteUser?.name}</h3><p className="text-sm text-zinc-500">{isTyping ? <span className="text-indigo-600 font-medium animate-pulse">typing...</span> : formatLastSeen(remoteStatus.lastSeen, remoteStatus.isOnline)}</p></div></div>
             <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-6 py-4 bg-zinc-50 relative" style={{ opacity: isMessagesPending ? 1 : chatOpacity }}>
-              {isMessagesPending ? (<div className="flex h-full items-center justify-center"><Loader2Icon className="h-10 w-10 animate-spin text-indigo-600 mx-auto mb-4" /><p className="text-zinc-500">Loading messages...</p></div>) : (
+              {isMessagesPending ? (<div className="flex flex-col h-full items-center justify-center"><Loader2Icon className="h-10 w-10 animate-spin text-indigo-600 mx-auto mb-4" /><p className="text-zinc-500">Loading messages...</p></div>) : (
                 <div className="pb-2">{Object.entries(groupedMessages).map(([date, msgs]) => (<div key={date} className="relative mb-6"><div className="sticky top-2 z-10 flex justify-center my-4 pointer-events-none"><span className="bg-white/90 backdrop-blur-sm text-zinc-600 px-4 py-1.5 rounded-full text-xs font-medium shadow-md border border-zinc-100">{date}</span></div><div className="space-y-1">{msgs.map((msg) => { const prevMsg = msgs[msgs.indexOf(msg) - 1]; const nextMsg = msgs[msgs.indexOf(msg) + 1]; const isSender = msg.sender === currentUser.id; const isFirstInGroup = !prevMsg || prevMsg.sender !== msg.sender; const isLastInGroup = !nextMsg || nextMsg.sender !== msg.sender; return (<MessageBubble key={msg._id} message={msg} isSender={isSender} isFirstInGroup={isFirstInGroup} isLastInGroup={isLastInGroup} onReplyClick={() => setReplyingTo(msg)} onReplyView={scrollToMessage} onDeleteClick={() => setDeleteConfirmId(msg._id)} showDeleteConfirm={deleteConfirmId === msg._id} onConfirmDelete={() => handleDeleteMessage(msg._id)} onCancelDelete={() => setDeleteConfirmId(null)} isMounted={isMounted} currentUserId={currentUser.id} onViewMedia={handleViewMedia} onImageLoad={handleImageLoad} />); })}</div></div>))}</div>
               )}
               <div ref={messagesEndRef} />
