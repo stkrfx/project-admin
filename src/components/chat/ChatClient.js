@@ -166,6 +166,11 @@ export default function ChatClient({ initialConversations, currentUser }) {
     }
   }, [remoteUser?._id]);
 
+  useEffect(() => {
+    // Syncs server data with the sidebar state on mount
+    router.refresh();
+  }, [router]);
+
   // --- SOCKET CONNECTION ---
   // [!code change] Fix variable shadowing
   useEffect(() => {
@@ -225,10 +230,10 @@ export default function ChatClient({ initialConversations, currentUser }) {
       const newConversations = prev.map(c => {
         if (c._id === updatedConvo.conversationId) {
           // ✅ Prevent profile (otherUser) from disappearing
-          const otherUser = (updatedConvo.otherUser && typeof updatedConvo.otherUser === 'object') 
-            ? updatedConvo.otherUser 
+          const otherUser = (updatedConvo.otherUser && typeof updatedConvo.otherUser === 'object')
+            ? updatedConvo.otherUser
             : c.otherUser;
-  
+
           return { ...c, ...updatedConvo, otherUser };
         }
         return c;
@@ -273,6 +278,11 @@ export default function ChatClient({ initialConversations, currentUser }) {
       else if (message.contentType === "image") previewText = "📷 Image";
       else if (message.contentType === "pdf") previewText = "📄 Document";
 
+      // ✅ ADD THIS: Play sound for background/sidebar updates
+    if (message.sender !== currentUser.id) {
+      receiveSoundRef.current?.play().catch(e => console.log("Audio play blocked", e));
+    }
+
       let shouldFetch = false;
 
       setConversations(prev => {
@@ -309,7 +319,7 @@ export default function ChatClient({ initialConversations, currentUser }) {
         }
       }
     },
-    []
+    [currentUser.id, conversations]
   );
 
 
@@ -570,7 +580,7 @@ export default function ChatClient({ initialConversations, currentUser }) {
           return [...prev, message];
         });
 
-        
+
 
         // ✅ FIX: instantly mark as read if chat is open
         if (message.sender !== currentUser.id && socket) {
@@ -594,6 +604,8 @@ export default function ChatClient({ initialConversations, currentUser }) {
         lastMessageAt: message.createdAt,
         lastMessageSender: message.sender,
         lastMessageStatus: "sent",
+        // ✅ FIXED: Force clear typing status in sidebar when a real message arrives
+        isTyping: false,
       };
 
       // 👇 IF *I SENT* (Expert → Client)
@@ -604,17 +616,17 @@ export default function ChatClient({ initialConversations, currentUser }) {
 
       // 👇 IF *CLIENT SENT* → BADGE
       // ✅ NEW LOGIC (Increments existing count)
-if (message.sender !== currentUser.id) {
-  const isCurrentChat = selectedConversationId === message.conversationId;
-  
-  if (isCurrentChat) {
-    updates.expertUnreadCount = 0;
-  } else {
-    // Find the current count in state and add 1
-    const existing = conversations.find(c => c._id === message.conversationId);
-    updates.expertUnreadCount = (existing?.expertUnreadCount || 0) + 1;
-  }
-}
+      if (message.sender !== currentUser.id) {
+        const isCurrentChat = selectedConversationId === message.conversationId;
+
+        if (isCurrentChat) {
+          updates.expertUnreadCount = 0;
+        } else {
+          // ✅ FIXED: Correctly increment sidebar badge for background messages
+          const existing = conversations.find(c => c._id === message.conversationId);
+          updates.expertUnreadCount = (existing?.expertUnreadCount || 0) + 1;
+        }
+      }
 
       // ✅ FIX: Force clear typing status in sidebar
       updates.isTyping = false;
@@ -637,26 +649,30 @@ if (message.sender !== currentUser.id) {
 
   const onMessagesRead = useCallback(
     ({ conversationId, readByUserId }) => {
-
-      // 🫧 Message bubbles (unchanged)
+      // 1. Update message ticks (bubbles)
       if (conversationId === selectedConversationId) {
         setMessages(prev =>
           prev.map(msg =>
-            msg.sender === currentUser.id &&
-              !msg.readBy.includes(readByUserId)
+            msg.sender === currentUser.id && !msg.readBy.includes(readByUserId)
               ? { ...msg, readBy: [...msg.readBy, readByUserId] }
               : msg
           )
         );
       }
 
-      // ✅ SIDEBAR → CLIENT read → clear userUnreadCount
-      if (readByUserId !== currentUser.id) {
+      // 2. ✅ FIXED: Clear YOUR badge (expertUnreadCount) in the sidebar
+      if (readByUserId === currentUser.id) {
         setConversations(prev =>
           prev.map(c =>
-            c._id === conversationId
-              ? { ...c, userUnreadCount: 0 }
-              : c
+            c._id === conversationId ? { ...c, expertUnreadCount: 0 } : c
+          )
+        );
+      }
+      // 3. ✅ FIXED: Clear CLIENT badge (for tick status in sidebar)
+      else {
+        setConversations(prev =>
+          prev.map(c =>
+            c._id === conversationId ? { ...c, userUnreadCount: 0 } : c
           )
         );
       }
@@ -869,7 +885,13 @@ function ConversationItem({ convo, isSelected, onClick, isMounted, currentUserId
       />
     )
   )}
-    <p className="text-sm text-zinc-500 truncate">{convo.lastMessage || "No messages yet"}</p></>}</div>{convo.expertUnreadCount > 0 && <span className="flex items-center justify-center bg-indigo-600 text-white text-xs font-bold rounded-full h-5 min-w-[20px] px-1.5 shrink-0">{convo.expertUnreadCount}</span>}</div> </div> </button>);
+    <p className="text-sm text-zinc-500 truncate">{convo.lastMessage || "No messages yet"}</p></>}</div>{/* ✅ FIXED: 9+ Logic and matching badge style */}
+    {convo.expertUnreadCount > 0 && (
+  <span className="flex items-center justify-center bg-indigo-600 text-white text-[10px] font-bold rounded-full h-5 min-w-[20px] px-1.5 shrink-0 shadow-sm">
+    {/* ✅ Match mindnamo logic */}
+    {convo.expertUnreadCount > 9 ? "9+" : convo.expertUnreadCount}
+  </span>
+)}</div> </div> </button>);
 }
 function VoiceMessagePlayer({ src, isSender }) { const [isPlaying, setIsPlaying] = useState(false); const [progress, setProgress] = useState(0); const [duration, setDuration] = useState(0); const audioRef = useRef(null); useEffect(() => { const audio = audioRef.current; if (!audio) return; const updateProgress = () => { const current = audio.currentTime; const total = audio.duration; if (Number.isFinite(total) && total > 0) { setProgress((current / total) * 100); setDuration(total); } else { setProgress(0); setDuration(0); } }; const setAudioData = () => { const d = audio.duration; if (Number.isFinite(d)) setDuration(d); }; const handleEnded = () => { setIsPlaying(false); setProgress(0); }; audio.addEventListener('timeupdate', updateProgress); audio.addEventListener('loadedmetadata', setAudioData); audio.addEventListener('durationchange', setAudioData); audio.addEventListener('ended', handleEnded); return () => { audio.removeEventListener('timeupdate', updateProgress); audio.removeEventListener('loadedmetadata', setAudioData); audio.removeEventListener('durationchange', setAudioData); audio.removeEventListener('ended', handleEnded); }; }, []); const togglePlay = () => { const audio = audioRef.current; if (!audio) return; if (isPlaying) audio.pause(); else audio.play(); setIsPlaying(!isPlaying); }; const handleSeek = (e) => { const audio = audioRef.current; if (!audio) return; const newTime = (e.target.value / 100) * audio.duration; audio.currentTime = newTime; setProgress(e.target.value); }; const formatTime = (time) => { if (!Number.isFinite(time) || isNaN(time)) return "0:00"; const mins = Math.floor(time / 60); const secs = Math.floor(time % 60); return `${mins}:${secs.toString().padStart(2, '0')}`; }; return (<div className="flex items-center gap-3 pr-4 min-w-[200px] py-1"> <audio ref={audioRef} src={src} className="hidden" /> <button onClick={togglePlay} className={cn("flex items-center justify-center h-10 w-10 rounded-full transition-colors shrink-0", isSender ? "bg-white/20 hover:bg-white/30 text-white" : "bg-indigo-50 hover:bg-indigo-100 text-indigo-600")}>{isPlaying ? <PauseIcon className="h-5 w-5" /> : <PlayIcon className="h-5 w-5 ml-0.5" />}</button> <div className="flex-1 flex flex-col gap-1"><input type="range" min="0" max="100" value={progress || 0} onChange={handleSeek} className={cn("w-full h-1 rounded-lg appearance-none cursor-pointer", isSender ? "bg-white/30 accent-white" : "bg-zinc-200 accent-indigo-600")} /><div className={cn("flex justify-between text-[10px] font-medium", isSender ? "text-white/80" : "text-zinc-500")}><span>{formatTime(audioRef.current?.currentTime || 0)}</span><span>{formatTime(duration)}</span></div></div> </div>); }
 function MessageBubble({
