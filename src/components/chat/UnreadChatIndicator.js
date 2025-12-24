@@ -28,12 +28,9 @@ export default function UnreadChatIndicator({ initialCount = 0 }) {
     socket.on("messagesRead", handleUpdate);
 
     return () => {
-      const s = getSocket();
-      if (s) {
-        s.off("receiveDirectMessage", handleUpdate);
-        s.off("messagesRead", handleUpdate);
-      }
-    };
+        socket.off("messagesRead", handleUpdate);
+        socket.off("receiveDirectMessage", handleUpdate);
+      };
   }, [session?.user?.id]);
 
   if (count <= 0) return null;

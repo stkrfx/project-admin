@@ -9,7 +9,7 @@ import ProfileImage from "@/components/ProfileImage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getMessages, getConversationById } from "@/actions/chat";
-import io from "socket.io-client";
+import { initSocket } from "@/lib/socket-client";
 import { useUploadThing } from "@/lib/uploadthing";
 
 // --- Icons ---
@@ -174,48 +174,13 @@ export default function ChatClient({ initialConversations, currentUser }) {
   // --- SOCKET CONNECTION ---
   // [!code change] Fix variable shadowing
   useEffect(() => {
-    let newSocket;
-
-    const initSocket = async () => {
-      const socketUrl =
-        process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || "http://localhost:3002";
-
-      newSocket = io(socketUrl, {
-        path: "/api/socket_io",
-        query: {
-          userId: currentUser.id,
-          role: "expert",
-        },
-        transports: ["websocket", "polling"],
-        withCredentials: true,
-      });
-
-      // ✅ CONNECTION LOGS
-      newSocket.on("connect", () => {
-        console.log("✅ Socket connected successfully");
-        console.log("🔌 Socket ID:", newSocket.id);
-      });
-
-      newSocket.on("disconnect", (reason) => {
-        console.log("❌ Socket disconnected:", reason);
-      });
-
-      newSocket.on("connect_error", (error) => {
-        console.error("🚨 Socket connection error:", error.message);
-      });
-
-      newSocket.on("reconnect_attempt", (attempt) => {
-        console.log("🔄 Reconnecting... attempt:", attempt);
-      });
-
-      setSocket(newSocket);
-    };
-
-    initSocket();
-
+    // Use the global singleton instead of creating a new 'io()' connection
+    const newSocket = initSocket(currentUser.id);
+    setSocket(newSocket);
+  
+    // Do NOT disconnect here, as it will kill the Header's socket too
     return () => {
-      console.log("🧹 Cleaning up socket connection");
-      newSocket?.disconnect();
+      console.log("🧹 Leaving Chat Page");
     };
   }, [currentUser.id]);
 
@@ -229,18 +194,35 @@ export default function ChatClient({ initialConversations, currentUser }) {
     setConversations(prev => {
       const newConversations = prev.map(c => {
         if (c._id === updatedConvo.conversationId) {
-          // ✅ Prevent profile (otherUser) from disappearing
           const otherUser = (updatedConvo.otherUser && typeof updatedConvo.otherUser === 'object')
             ? updatedConvo.otherUser
             : c.otherUser;
 
-          return { ...c, ...updatedConvo, otherUser };
+          // ✅ Determine if this is the active chat
+          const isCurrent = updatedConvo.conversationId === selectedConversationId;
+          
+          // ✅ NEW LOGIC: Calculate unread count using the 'prev' state
+          let expertUnreadCount = c.expertUnreadCount || 0;
+          if (isCurrent) {
+            expertUnreadCount = 0; // Always 0 if open
+          } else if (updatedConvo.shouldIncrement) {
+            expertUnreadCount += 1; // Increment safely
+          } else if (updatedConvo.expertUnreadCount !== undefined) {
+            expertUnreadCount = updatedConvo.expertUnreadCount;
+          }
+
+          return { 
+            ...c, 
+            ...updatedConvo, 
+            expertUnreadCount, 
+            otherUser 
+          };
         }
         return c;
       });
       return newConversations.sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
     });
-  }, []);
+  }, [selectedConversationId]); // 👈 CRITICAL: Must depend on selectedConversationId
 
   const handleScrollToBottom = () => {
     if (messagesContainerRef.current) {
@@ -277,49 +259,30 @@ export default function ChatClient({ initialConversations, currentUser }) {
       if (message.contentType === "audio") previewText = "🎤 Audio Message";
       else if (message.contentType === "image") previewText = "📷 Image";
       else if (message.contentType === "pdf") previewText = "📄 Document";
-
-      // ✅ ADD THIS: Play sound for background/sidebar updates
-    if (message.sender !== currentUser.id) {
-      receiveSoundRef.current?.play().catch(e => console.log("Audio play blocked", e));
-    }
-
-      let shouldFetch = false;
-
-      setConversations(prev => {
-        const exists = prev.some(c => c._id === message.conversationId);
-
-        if (exists) {
-          return prev
-            .map(c =>
-              c._id === message.conversationId
-                ? {
-                  ...c,
-                  lastMessage: previewText,
-                  lastMessageAt: message.createdAt,
-                  lastMessageSender: message.sender,
-                }
-                : c
-            )
-            .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
-        }
-
-        shouldFetch = true;
-        return prev;
-      });
-
-      // ✅ NEW conversation → fetch safely
-      if (shouldFetch) {
-        try {
-          const convo = await getConversationById(message.conversationId);
-          if (convo) {
-            setConversations(prev => [convo, ...prev]);
-          }
-        } catch (err) {
-          console.error("Failed to fetch conversation:", err);
-        }
+  
+      if (message.sender !== currentUser.id) {
+        receiveSoundRef.current?.play().catch(e => console.log("Audio blocked", e));
+      }
+  
+      const updates = {
+        conversationId: message.conversationId,
+        lastMessage: previewText,
+        lastMessageAt: message.createdAt,
+        lastMessageSender: message.sender,
+        shouldIncrement: message.sender !== currentUser.id 
+      };
+  
+      // ✅ FIX: Check existence using the stable state from closure
+      const exists = conversations.some(c => c._id === message.conversationId);
+      if (exists) {
+        updateChatList(updates);
+      } else {
+        // Handle brand new conversation
+        const convo = await getConversationById(message.conversationId);
+        if (convo) setConversations(old => [convo, ...old]);
       }
     },
-    [currentUser.id, conversations]
+    [currentUser.id, updateChatList, conversations] // Added conversations to dependencies
   );
 
 
@@ -549,15 +512,15 @@ export default function ChatClient({ initialConversations, currentUser }) {
 
   const onReceiveMessage = useCallback(
     (message) => {
-
-      // ✅ ADD THIS: Play sound for incoming messages in the active chat
+      // 1. Play sound for incoming messages
       if (message.sender !== currentUser.id) {
         receiveSoundRef.current?.play().catch(e => console.log("Audio play blocked", e));
       }
-
+  
+      // 2. Handle the Active Chat Messages Window
       if (message.conversationId === selectedConversationId) {
         setMessages((prev) => {
-          // ✅ Replace optimistic message
+          // Replace optimistic message if it's mine
           if (message.sender === currentUser.id) {
             const pendingIndex = prev.findIndex(
               (m) =>
@@ -565,85 +528,55 @@ export default function ChatClient({ initialConversations, currentUser }) {
                 m.content === message.content &&
                 m.conversationId === message.conversationId
             );
-
+  
             if (pendingIndex !== -1) {
               const updated = [...prev];
-              updated[pendingIndex] = {
-                ...updated[pendingIndex],
-                ...message,
-                status: "sent",
-              };
+              updated[pendingIndex] = { ...updated[pendingIndex], ...message, status: "sent" };
               return updated;
             }
           }
-
           return [...prev, message];
         });
-
-
-
-        // ✅ FIX: instantly mark as read if chat is open
+  
+        // Instantly mark as read if chat is open
         if (message.sender !== currentUser.id && socket) {
-          receiveSoundRef.current?.play().catch(e => console.log("Audio blocked", e));
           socket.emit("markAsRead", {
             conversationId: selectedConversationId,
             userId: currentUser.id,
           });
         }
+        
+        setIsTyping(false); // Clear typing indicator for active chat
       }
-
-      // ✅ Conversation preview update
+  
+      // 3. Prepare Sidebar Updates
       let previewText = message.content;
       if (message.contentType === "audio") previewText = "🎤 Audio Message";
       else if (message.contentType === "image") previewText = "📷 Image";
       else if (message.contentType === "pdf") previewText = "📄 Document";
-
+  
       const updates = {
         conversationId: message.conversationId,
         lastMessage: previewText,
         lastMessageAt: message.createdAt,
         lastMessageSender: message.sender,
         lastMessageStatus: "sent",
-        // ✅ FIXED: Force clear typing status in sidebar when a real message arrives
         isTyping: false,
       };
 
-      // 👇 IF *I SENT* (Expert → Client)
+      // ✅ SIMPLIFIED LOGIC: Use flags for the Sidebar
       if (message.sender === currentUser.id) {
-        updates.userUnreadCount = 1;   // Client hasn't read yet
-        updates.expertUnreadCount = 0; // I always read my own message
+        updates.expertUnreadCount = 0;
+        updates.userUnreadCount = 1; 
+      } else {
+        // Just tell the updater to handle the increment
+        updates.shouldIncrement = true; 
       }
-
-      // 👇 IF *CLIENT SENT* → BADGE
-      // ✅ NEW LOGIC (Increments existing count)
-      if (message.sender !== currentUser.id) {
-        const isCurrentChat = selectedConversationId === message.conversationId;
-
-        if (isCurrentChat) {
-          updates.expertUnreadCount = 0;
-        } else {
-          // ✅ FIXED: Correctly increment sidebar badge for background messages
-          const existing = conversations.find(c => c._id === message.conversationId);
-        updates.expertUnreadCount = (existing?.expertUnreadCount || 0) + 1;
-        }
-      }
-
-      // ✅ FIX: Force clear typing status in sidebar
-      updates.isTyping = false;
 
       updateChatList(updates);
-
-      // ✅ FIX: Force clear typing status in active chat window
-      if (
-        message.conversationId === selectedConversationId &&
-        message.sender !== currentUser.id
-      ) {
-        setIsTyping(false);
-      }
-
-
     },
-    [selectedConversationId, currentUser.id, socket, updateChatList, conversations] 
+    // ✅ conversations is REMOVED from dependencies to prevent stale closures
+    [selectedConversationId, currentUser.id, socket, updateChatList] 
   );
 
 
@@ -733,6 +666,8 @@ export default function ChatClient({ initialConversations, currentUser }) {
       conversationId: selectedConversationId,
       userId: currentUser.id,
     });
+
+    router.refresh();
   
     // 4. Fetch ONLY messages (remove getConversationById fetch here)
     startMessagesTransition(async () => {
