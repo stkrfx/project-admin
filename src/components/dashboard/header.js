@@ -17,8 +17,8 @@ export default async function Header() {
   await connectDB();
   let user = session?.user?.id
     ? await User.findById(session.user.id)
-        .select("name email image username")
-        .lean()
+      .select("name email image username")
+      .lean()
     : session?.user;
 
   if (user) {
@@ -26,11 +26,12 @@ export default async function Header() {
   }
 
   const data = await getDashboardContext();
+  const totalUnread = data?.conversations?.reduce((acc, conv) => acc + (conv.expertUnreadCount || 0), 0) || 0;
   const isLive = data?.profile?.isVetted;
 
   return (
     <header className="flex items-center justify-between px-6 py-3 border-b border-zinc-200 bg-white/80 backdrop-blur-md sticky top-0 z-40 h-16 w-full">
-      
+
       {/* Left: Brand & Status */}
       <div className="flex items-center gap-4 md:gap-6">
         <MobileSidebar />
@@ -74,14 +75,18 @@ export default async function Header() {
 
       {/* Right: Actions */}
       <div className="flex items-center gap-2">
-        
+
         {/* ✅ Chat Button */}
         <Link
           href="/chat"
           className="relative p-2 rounded-full hover:bg-zinc-100 transition-colors text-zinc-600"
         >
           <MessageSquare className="h-5 w-5" />
-          {/* Future: unread badge */}
+          {totalUnread > 0 && (
+            <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white border-2 border-white">
+              {totalUnread > 9 ? "9+" : totalUnread}
+            </span>
+          )}
         </Link>
 
         <NotificationsNav data={data?.notifications || []} />

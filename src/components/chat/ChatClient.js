@@ -56,6 +56,12 @@ const formatDateHeader = (d) => {
   return date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: 'UTC' });
 };
 
+// Around line 60 - Add the Back Icon
+const ArrowLeftIcon = (props) => (
+  <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 19-7-7 7-7" /><path d="M19 12H5" /></svg>
+);
+
+
 const formatLastMessageTime = (d) => {
   if (!d) return "";
   const date = new Date(d);
@@ -133,6 +139,18 @@ export default function ChatClient({ initialConversations, currentUser }) {
   }, [selectedConversation]);
 
 
+  // Inside ChatClient component (around line 120)
+  const sendSoundRef = useRef(null);
+  const receiveSoundRef = useRef(null);
+
+  useEffect(() => {
+    sendSoundRef.current = new Audio("/sounds/send.mp3");
+    receiveSoundRef.current = new Audio("/sounds/receive.mp3");
+    sendSoundRef.current.volume = 0.5;
+    receiveSoundRef.current.volume = 0.5;
+  }, []);
+
+
   // [!code change] Update dependency array
   useEffect(() => {
     activeClientIdRef.current = selectedConversation?.otherUser?._id || null;
@@ -141,9 +159,9 @@ export default function ChatClient({ initialConversations, currentUser }) {
   // [!code change] Only update initial status when the USER ID changes
   useEffect(() => {
     if (remoteUser) {
-      setRemoteStatus({ 
-        isOnline: remoteUser.isOnline, 
-        lastSeen: remoteUser.lastSeen 
+      setRemoteStatus({
+        isOnline: remoteUser.isOnline,
+        lastSeen: remoteUser.lastSeen
       });
     }
   }, [remoteUser?._id]);
@@ -152,11 +170,11 @@ export default function ChatClient({ initialConversations, currentUser }) {
   // [!code change] Fix variable shadowing
   useEffect(() => {
     let newSocket;
-  
+
     const initSocket = async () => {
       const socketUrl =
         process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || "http://localhost:3002";
-  
+
       newSocket = io(socketUrl, {
         path: "/api/socket_io",
         query: {
@@ -166,36 +184,36 @@ export default function ChatClient({ initialConversations, currentUser }) {
         transports: ["websocket", "polling"],
         withCredentials: true,
       });
-  
+
       // ✅ CONNECTION LOGS
       newSocket.on("connect", () => {
         console.log("✅ Socket connected successfully");
         console.log("🔌 Socket ID:", newSocket.id);
       });
-  
+
       newSocket.on("disconnect", (reason) => {
         console.log("❌ Socket disconnected:", reason);
       });
-  
+
       newSocket.on("connect_error", (error) => {
         console.error("🚨 Socket connection error:", error.message);
       });
-  
+
       newSocket.on("reconnect_attempt", (attempt) => {
         console.log("🔄 Reconnecting... attempt:", attempt);
       });
-  
+
       setSocket(newSocket);
     };
-  
+
     initSocket();
-  
+
     return () => {
       console.log("🧹 Cleaning up socket connection");
       newSocket?.disconnect();
     };
   }, [currentUser.id]);
-  
+
 
 
   useEffect(() => { setIsMounted(true); }, []);
@@ -204,7 +222,17 @@ export default function ChatClient({ initialConversations, currentUser }) {
 
   const updateChatList = useCallback((updatedConvo) => {
     setConversations(prev => {
-      const newConversations = prev.map(c => c._id === updatedConvo.conversationId ? { ...c, ...updatedConvo } : c);
+      const newConversations = prev.map(c => {
+        if (c._id === updatedConvo.conversationId) {
+          // ✅ Prevent profile (otherUser) from disappearing
+          const otherUser = (updatedConvo.otherUser && typeof updatedConvo.otherUser === 'object') 
+            ? updatedConvo.otherUser 
+            : c.otherUser;
+  
+          return { ...c, ...updatedConvo, otherUser };
+        }
+        return c;
+      });
       return newConversations.sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
     });
   }, []);
@@ -466,6 +494,9 @@ export default function ChatClient({ initialConversations, currentUser }) {
   const sendMessageSocket = (content, contentType = "text") => {
     if (!selectedConversationId || !socket || !remoteUser?._id) return;
 
+    // ✅ Play Send Sound
+    sendSoundRef.current?.play().catch(e => console.log("Audio play blocked", e));
+
     socket.emit("send_message", {
       conversationId: selectedConversationId,
       senderId: currentUser.id,
@@ -508,6 +539,12 @@ export default function ChatClient({ initialConversations, currentUser }) {
 
   const onReceiveMessage = useCallback(
     (message) => {
+
+      // ✅ ADD THIS: Play sound for incoming messages in the active chat
+      if (message.sender !== currentUser.id) {
+        receiveSoundRef.current?.play().catch(e => console.log("Audio play blocked", e));
+      }
+
       if (message.conversationId === selectedConversationId) {
         setMessages((prev) => {
           // ✅ Replace optimistic message
@@ -533,8 +570,11 @@ export default function ChatClient({ initialConversations, currentUser }) {
           return [...prev, message];
         });
 
+        
+
         // ✅ FIX: instantly mark as read if chat is open
         if (message.sender !== currentUser.id && socket) {
+          receiveSoundRef.current?.play().catch(e => console.log("Audio blocked", e));
           socket.emit("markAsRead", {
             conversationId: selectedConversationId,
             userId: currentUser.id,
@@ -563,10 +603,18 @@ export default function ChatClient({ initialConversations, currentUser }) {
       }
 
       // 👇 IF *CLIENT SENT* → BADGE
-      if (message.sender !== currentUser.id) {
-        updates.expertUnreadCount =
-          selectedConversationId === message.conversationId ? 0 : 1;
-      }
+      // ✅ NEW LOGIC (Increments existing count)
+if (message.sender !== currentUser.id) {
+  const isCurrentChat = selectedConversationId === message.conversationId;
+  
+  if (isCurrentChat) {
+    updates.expertUnreadCount = 0;
+  } else {
+    // Find the current count in state and add 1
+    const existing = conversations.find(c => c._id === message.conversationId);
+    updates.expertUnreadCount = (existing?.expertUnreadCount || 0) + 1;
+  }
+}
 
       // ✅ FIX: Force clear typing status in sidebar
       updates.isTyping = false;
@@ -698,7 +746,7 @@ export default function ChatClient({ initialConversations, currentUser }) {
         userId: currentUser.id,
       });
     });
-  // [!code ++] Added remoteUser?._id to dependency array
+    // [!code ++] Added remoteUser?._id to dependency array
   }, [selectedConversationId, currentUser.id, socket, updateChatList, remoteUser?._id]);
 
 
@@ -711,6 +759,7 @@ export default function ChatClient({ initialConversations, currentUser }) {
     socket.on("stopTyping", onStopTyping);
     socket.on("userStatusChanged", onUserStatusChanged);
     socket.on("messagesRead", onMessagesRead);
+    socket.on("conversationUpdated", onConversationUpdated);
     return () => {
       socket.off("receive_message", onReceiveMessage);
       socket.off("messageDeleted", onMessageDeleted);
@@ -718,20 +767,21 @@ export default function ChatClient({ initialConversations, currentUser }) {
       socket.off("stopTyping", onStopTyping);
       socket.off("userStatusChanged", onUserStatusChanged);
       socket.off("messagesRead", onMessagesRead);
+      socket.off("conversationUpdated", onConversationUpdated);
     };
-  }, [selectedConversationId, socket, onReceiveMessage, onTyping, onStopTyping, onUserStatusChanged, onMessagesRead]);
+  }, [selectedConversationId, socket, onReceiveMessage, onTyping, onStopTyping, onUserStatusChanged, onMessagesRead, onConversationUpdated]);
 
   useEffect(() => {
     if (!socket) return;
-  
+
     const onPresence = ({ userId, isOnline, lastSeen }) => {
       if (activeClientIdRef.current === userId) {
         setRemoteStatus({ isOnline, lastSeen });
       }
     };
-  
+
     socket.on("userPresence", onPresence);
-  
+
     return () => {
       socket.off("userPresence", onPresence);
     };
